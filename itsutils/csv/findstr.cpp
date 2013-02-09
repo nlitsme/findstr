@@ -4,6 +4,9 @@
 #include "FileFunctions.h"
 #include "stringutils.h"
 
+
+// todo: why does  basic_regex<uint8_t>  throw a 'bad_cast' exception?
+
 struct findstr {
     bool matchword;      // modifies pattern
     bool matchbinary;    // modifies pattern, modifies verbose output
@@ -12,6 +15,7 @@ struct findstr {
     bool pattern_is_guid;// modifies verbose output, implies binary
     bool verbose;        // modifies ouput
     bool list_only;      // modifies ouput
+    bool readcontinuous; // read until ctrl-c, instead of until eof
 
     std::string pattern;
 
@@ -22,7 +26,8 @@ struct findstr {
         pattern_is_hex(false),
         pattern_is_guid(false),
         verbose(false),
-        list_only(false)
+        list_only(false),
+        readcontinuous(false)
     {
     }
 
@@ -31,21 +36,25 @@ struct findstr {
     //     last   when only complete matches were found
     //     *      when partial match was found
     template<typename CB>
-    const uint8_t *searchrange(const uint8_t *first, const uint8_t *last, CB cb)
+    const char *searchrange(const char *first, const char *last, CB cb)
     {
-        boost::basic_regex<uint8_t> re((const uint8_t*)pattern.c_str(), (const uint8_t*)pattern.c_str()+pattern.size());
+        boost::basic_regex<char> re(pattern.c_str(), pattern.c_str()+pattern.size());
 
-        boost::regex_iterator<const uint8_t*> a(first, last, re);
-        boost::regex_iterator<const uint8_t*> b;
+        boost::regex_iterator<const char*> a(first, last, re, boost::match_partial);
+        boost::regex_iterator<const char*> b;
 
-        const uint8_t *maxpartial= NULL;
-        const uint8_t *maxmatch= NULL;
+        const char *maxpartial= NULL;
+        const char *maxmatch= NULL;
 
+        //printf("searchrange(%p, %p)\n", first, last);
         while (a!=b) {
             auto m= (*a)[0];
+            //printf("    match %d  %p..%p\n", m.matched, m.first, m.second);
             if (m.matched) {
-                if (!cb(m.first, m.second))
+                if (!cb(m.first, m.second)) {
+                    //printf("searchrange: stopping\n");
                     return NULL;
+                }
                 if (maxmatch==NULL || maxmatch<m.first)
                     maxmatch= m.first;
             }
@@ -53,50 +62,61 @@ struct findstr {
                 if (maxpartial==NULL || maxpartial<m.first)
                     maxpartial= m.first;
             }
-        }
-        if (maxmatch>maxpartial)
-            return last;
 
+            ++a;
+        }
+        if ((maxmatch==NULL && maxpartial==NULL) || maxmatch>maxpartial) {
+            //printf("searchrange: no partial match\n");
+            return last;
+        }
+
+        //printf("searchrange: partial match @%lx\n", maxpartial-first);
         return maxpartial;
     }
 
     void searchstdin()
     {
+        //printf("searching stdin\n");
         // see: http://www.boost.org/doc/libs/1_52_0/libs/regex/doc/html/boost_regex/partial_matches.html
 
         bool nameprinted= false;
-        ByteVector buf(65536);
-        uint8_t *bufstart= &buf.front();
-        uint8_t *bufend= bufstart+buf.size();
+        std::vector<char> buf(256);
+        char *bufstart= &buf.front();
+        char *bufend= bufstart+buf.size();
         uint64_t offset= 0;
 
-        uint8_t *readptr= bufstart;
+        char *readptr= bufstart;
 
         while (true)
         {
             size_t needed= bufend-readptr;
+            //printf("%08llx: needed= %zd\n", offset, needed);
             int n= read(0, readptr, needed);
             if (n==0) {
-                usleep(100);
-                continue;
+                if (readcontinuous) {
+                    //printf("stdin: waiting for more\n");
+                    usleep(100);
+                    continue;
+                }
+                break;
             }
             else if (n>needed || n<0)
                 break;
 
-            uint8_t *readend= readptr+n;
+            char *readend= readptr+n;
 
-            const uint8_t *partial= searchrange(bufstart, readend, [bufstart, &offset, &nameprinted, this](const uint8_t *first, const uint8_t *last)->bool {
+            const char *partial= searchrange(bufstart, readend, [bufstart, offset, &nameprinted, this](const char *first, const char *last)->bool {
                 if (list_only) {
                     std::cout << "-\n" << std::endl;
                     return false;
                 }
                 else if (verbose) {
                     if (pattern_is_hex || matchbinary)
-                        std::cout << boost::format("- %08x %s\n") % (offset+first-bufstart) % hexdump(first, last-first);
+                        std::cout << boost::format("- %08x %s\n") % (offset+first-bufstart) % hexdump((const uint8_t*)first, last-first);
                     if (pattern_is_guid)
-                        std::cout << boost::format("- %08x %s\n") % (offset+first-bufstart) % guidstring(first);
+                        std::cout << boost::format("- %08x %s\n") % (offset+first-bufstart) % guidstring((const uint8_t*)first);
                     else
-                        std::cout << boost::format("- %08x %s\n") % (offset+first-bufstart) % ascdump(first, last-first);
+                        std::cout << boost::format("- %08x %s\n") % (offset+first-bufstart) % ascdump((const uint8_t*)first, last-first);
                 }
                 else {
                     if (!nameprinted) {
@@ -120,6 +140,7 @@ struct findstr {
             if (partial<readend) {
                 memcpy(bufstart, partial, readend-partial);
                 readptr= bufstart+(readend-partial);
+                n -= (readend-partial);
             }
             else {
                 readptr= bufstart;
@@ -135,24 +156,27 @@ struct findstr {
             % get16le(p+4)
             % get16le(p+6)
             % get16be(p+8)
-            % p[10] % p[11] % p[12] % p[13] % p[14] % p[15];
+            % get8(p+10) % get8(p+11) % get8(p+12) % get8(p+13) % get8(p+14) % get8(p+15);
     }
     void searchfile(const std::string& fn)
     {
+        //printf("searching %s\n", fn.c_str());
         bool nameprinted= false;
         MmapReader r(fn, MmapReader::readonly);
-        searchrange(r.begin(), r.end(), [&fn, &r, &nameprinted, this](const uint8_t *first, const uint8_t *last)->bool {
+        const char*filefirst= (const char*)r.begin();
+        const char*filelast= (const char*)r.end();
+        searchrange(filefirst, filelast, [&fn, filefirst, &nameprinted, this](const char *first, const char *last)->bool {
             if (list_only) {
                 std::cout << fn << std::endl;
                 return false;
             }
             else if (verbose) {
                 if (pattern_is_hex || matchbinary)
-                    std::cout << boost::format("%s %08x %s\n") % (first-r.begin()) % fn % hexdump(first, last-first);
-                if (pattern_is_guid)                                              
-                    std::cout << boost::format("%s %08x %s\n") % (first-r.begin()) % fn % guidstring(first);
-                else                                                              
-                    std::cout << boost::format("%s %08x %s\n") % (first-r.begin()) % fn % ascdump(first, last-first);
+                    std::cout << boost::format("%s %08x %s\n") % fn % (first-filefirst) % hexdump((const uint8_t*)first, last-first);
+                if (pattern_is_guid)                                                   
+                    std::cout << boost::format("%s %08x %s\n") % fn % (first-filefirst) % guidstring((const uint8_t*)first);
+                else                                                                   
+                    std::cout << boost::format("%s %08x %s\n") % fn % (first-filefirst) % ascdump((const uint8_t*)first, last-first);
             }
             else {
                 if (!nameprinted) {
@@ -162,7 +186,7 @@ struct findstr {
                 else {
                     std::cout << ", ";
                 }
-                std::cout << boost::format("%08x") % (first-r.begin());
+                std::cout << boost::format("%08x") % (first-filefirst);
                 nameprinted= true;
             }
             return true;
@@ -190,6 +214,9 @@ int main(int argc, char**argv)
             case 'v': f.verbose= true; break;
             case 'r': recurse_dirs= true; break;
             case 'l': f.list_only= true; break;
+            case 'f': f.readcontinuous= true; break;
+            case 0:
+                      args.push_back("-");
         }
         else if (f.pattern.empty()) 
             f.pattern= argv[i];
@@ -197,6 +224,12 @@ int main(int argc, char**argv)
             args.push_back(argv[i]);
         }
     }
+    //printf("pattern: %s,   #args=%zd\n", f.pattern.c_str(), args.size());
+
+    if (args.empty())
+        args.push_back("-");
+    //f.compile_pattern();
+
     for (auto arg : args) {
         if (GetFileInfo(arg)==AT_ISDIRECTORY)
             dir_iterator(arg, [&f](const std::string& fn) { f.searchfile(fn); }, [recurse_dirs](const std::string& fn)->bool { return recurse_dirs; } );
