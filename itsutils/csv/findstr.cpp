@@ -194,6 +194,28 @@ struct findstr {
         if (nameprinted)
             std::cout << std::endl;
     }
+    void compile_pattern()
+    {
+        if (pattern_is_hex) {
+            StringList l;
+
+            std::set<int> sizes;
+
+            auto i= pattern.begin();
+            while (i!=pattern.end()) {
+                auto j= std::find_if(i, pattern.end(), isxdigit);
+                l.push_back(std::string(i, j);
+                if (j==pattern.end())
+                    break;
+                i= std::find_if(j, pattern.end(), [](char c){ return !isxdigit(c); });
+            }
+
+            if (sizes.size()==1) {
+                size_t wordsize= *sizes.begin();
+                // ... todo
+            }
+        }
+    }
 
 };
 int main(int argc, char**argv)
@@ -228,9 +250,9 @@ int main(int argc, char**argv)
 
     if (args.empty())
         args.push_back("-");
-    //f.compile_pattern();
+    f.compile_pattern();
 
-    for (auto arg : args) {
+    for (auto const&arg : args) {
         if (GetFileInfo(arg)==AT_ISDIRECTORY)
             dir_iterator(arg, [&f](const std::string& fn) { f.searchfile(fn); }, [recurse_dirs](const std::string& fn)->bool { return recurse_dirs; } );
         else if (arg == "-")
