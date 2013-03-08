@@ -160,6 +160,9 @@ struct findstr {
     }
     void searchfile(const std::string& fn)
     {
+        if (GetFileSize(fn)==0)
+            return;
+
         //printf("searching %s\n", fn.c_str());
         bool nameprinted= false;
         MmapReader r(fn, MmapReader::readonly);
@@ -194,27 +197,65 @@ struct findstr {
         if (nameprinted)
             std::cout << std::endl;
     }
-    void compile_pattern()
+    bool compile_pattern()
     {
         if (pattern_is_hex) {
-            StringList l;
-
             std::set<int> sizes;
 
             auto i= pattern.begin();
             while (i!=pattern.end()) {
                 auto j= std::find_if(i, pattern.end(), isxdigit);
-                l.push_back(std::string(i, j);
                 if (j==pattern.end())
                     break;
                 i= std::find_if(j, pattern.end(), [](char c){ return !isxdigit(c); });
+                sizes.insert(i-j);
             }
+            ByteVector data;
 
             if (sizes.size()==1) {
-                size_t wordsize= *sizes.begin();
-                // ... todo
+                size_t nyblecount= *sizes.begin();
+                switch(nyblecount)
+                {
+                    case 2: hex2binary(pattern, data);
+                            break;
+                    case 4: {
+                                std::vector<uint16_t> v;
+                                hex2binary(pattern, v);
+                                data.resize(v.size()*sizeof(uint16_t));
+                                for(int i=0 ; i<v.size() ; i++)
+                                    set16le(&data[sizeof(uint16_t)*i], v[i]);
+                            }
+                            break;
+                    case 8: {
+                                std::vector<uint32_t> v;
+                                hex2binary(pattern, v);
+                                data.resize(v.size()*sizeof(uint32_t));
+                                for(int i=0 ; i<v.size() ; i++)
+                                    set32le(&data[sizeof(uint32_t)*i], v[i]);
+                            }
+                            break;
+                    case 16:{
+                                std::vector<uint64_t> v;
+                                hex2binary(pattern, v);
+                                data.resize(v.size()*sizeof(uint64_t));
+                                for(int i=0 ; i<v.size() ; i++)
+                                    set64le(&data[sizeof(uint64_t)*i], v[i]);
+                            }
+                            break;
+                    default: hex2binary(pattern, data);
+                            break;
+                }
             }
+            else {
+                hex2binary(pattern, data);
+            }
+            pattern.clear();
+            for (auto c : data)
+                pattern += stringformat("\\x%02x", c);
+            return true;
         }
+
+        return true;
     }
 
 };
@@ -250,7 +291,8 @@ int main(int argc, char**argv)
 
     if (args.empty())
         args.push_back("-");
-    f.compile_pattern();
+    if (!f.compile_pattern())
+        return 1;
 
     for (auto const&arg : args) {
         if (GetFileInfo(arg)==AT_ISDIRECTORY)
