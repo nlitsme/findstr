@@ -18,6 +18,7 @@ struct findstr {
     bool readcontinuous; // read until ctrl-c, instead of until eof
 
     std::string pattern;
+    std::string unicodepattern;
 
     findstr() :
         matchword(false),
@@ -36,10 +37,8 @@ struct findstr {
     //     last   when only complete matches were found
     //     *      when partial match was found
     template<typename CB>
-    const char *searchrange(const char *first, const char *last, CB cb)
+    const char *searchrange(const boost::basic_regex<char>& re, const char *first, const char *last, CB cb)
     {
-        boost::basic_regex<char> re(pattern.c_str(), pattern.c_str()+pattern.size());
-
         boost::regex_iterator<const char*> a(first, last, re, boost::match_partial);
         boost::regex_iterator<const char*> b;
 
@@ -87,6 +86,8 @@ struct findstr {
 
         char *readptr= bufstart;
 
+        boost::basic_regex<char> re(pattern.c_str(), pattern.c_str()+pattern.size());
+
         while (true)
         {
             size_t needed= bufend-readptr;
@@ -105,7 +106,7 @@ struct findstr {
 
             char *readend= readptr+n;
 
-            const char *partial= searchrange(bufstart, readend, [bufstart, offset, &nameprinted, this](const char *first, const char *last)->bool {
+            const char *partial= searchrange(re, bufstart, readend, [bufstart, offset, &nameprinted, this](const char *first, const char *last)->bool {
                 if (list_only) {
                     std::cout << "-\n" << std::endl;
                     return false;
@@ -113,7 +114,7 @@ struct findstr {
                 else if (verbose) {
                     if (pattern_is_hex || matchbinary)
                         std::cout << boost::format("- %08x %s\n") % (offset+first-bufstart) % hexdump((const uint8_t*)first, last-first);
-                    if (pattern_is_guid)
+                    else if (pattern_is_guid)
                         std::cout << boost::format("- %08x %s\n") % (offset+first-bufstart) % guidstring((const uint8_t*)first);
                     else
                         std::cout << boost::format("- %08x %s\n") % (offset+first-bufstart) % ascdump((const uint8_t*)first, last-first);
@@ -168,7 +169,10 @@ struct findstr {
         MmapReader r(fn, MmapReader::readonly);
         const char*filefirst= (const char*)r.begin();
         const char*filelast= (const char*)r.end();
-        searchrange(filefirst, filelast, [&fn, filefirst, &nameprinted, this](const char *first, const char *last)->bool {
+
+        boost::basic_regex<char> re(pattern.c_str(), pattern.c_str()+pattern.size());
+
+        searchrange(re, filefirst, filelast, [&fn, filefirst, &nameprinted, this](const char *first, const char *last)->bool {
             if (list_only) {
                 std::cout << fn << std::endl;
                 return false;
@@ -176,7 +180,7 @@ struct findstr {
             else if (verbose) {
                 if (pattern_is_hex || matchbinary)
                     std::cout << boost::format("%s %08x %s\n") % fn % (first-filefirst) % hexdump((const uint8_t*)first, last-first);
-                if (pattern_is_guid)                                                   
+                else if (pattern_is_guid)                                                   
                     std::cout << boost::format("%s %08x %s\n") % fn % (first-filefirst) % guidstring((const uint8_t*)first);
                 else                                                                   
                     std::cout << boost::format("%s %08x %s\n") % fn % (first-filefirst) % ascdump((const uint8_t*)first, last-first);
@@ -194,70 +198,184 @@ struct findstr {
             }
             return true;
         });
+
         if (nameprinted)
             std::cout << std::endl;
     }
     bool compile_pattern()
     {
         if (pattern_is_hex) {
-            std::set<int> sizes;
-
-            auto i= pattern.begin();
-            while (i!=pattern.end()) {
-                auto j= std::find_if(i, pattern.end(), isxdigit);
-                if (j==pattern.end())
-                    break;
-                i= std::find_if(j, pattern.end(), [](char c){ return !isxdigit(c); });
-                sizes.insert(i-j);
-            }
-            ByteVector data;
-
-            if (sizes.size()==1) {
-                size_t nyblecount= *sizes.begin();
-                switch(nyblecount)
-                {
-                    case 2: hex2binary(pattern, data);
-                            break;
-                    case 4: {
-                                std::vector<uint16_t> v;
-                                hex2binary(pattern, v);
-                                data.resize(v.size()*sizeof(uint16_t));
-                                for(int i=0 ; i<v.size() ; i++)
-                                    set16le(&data[sizeof(uint16_t)*i], v[i]);
-                            }
-                            break;
-                    case 8: {
-                                std::vector<uint32_t> v;
-                                hex2binary(pattern, v);
-                                data.resize(v.size()*sizeof(uint32_t));
-                                for(int i=0 ; i<v.size() ; i++)
-                                    set32le(&data[sizeof(uint32_t)*i], v[i]);
-                            }
-                            break;
-                    case 16:{
-                                std::vector<uint64_t> v;
-                                hex2binary(pattern, v);
-                                data.resize(v.size()*sizeof(uint64_t));
-                                for(int i=0 ; i<v.size() ; i++)
-                                    set64le(&data[sizeof(uint64_t)*i], v[i]);
-                            }
-                            break;
-                    default: hex2binary(pattern, data);
-                            break;
-                }
-            }
-            else {
-                hex2binary(pattern, data);
-            }
-            pattern.clear();
-            for (auto c : data)
-                pattern += stringformat("\\x%02x", c);
-            return true;
+            return compile_hex_pattern();
         }
-
+        else if (pattern_is_guid) {
+            return compile_guid_pattern();
+        }
+        else if (!matchbinary) {
+            pattern += "|" + translate_pattern(pattern);
+        }
         return true;
     }
+    bool compile_hex_pattern()
+    {
+        std::set<int> sizes;
 
+        auto i= pattern.begin();
+        while (i!=pattern.end()) {
+            auto j= std::find_if(i, pattern.end(), isxdigit);
+            if (j==pattern.end())
+                break;
+            i= std::find_if(j, pattern.end(), [](char c){ return !isxdigit(c); });
+            sizes.insert(i-j);
+        }
+        ByteVector data;
+
+        if (sizes.size()==1) {
+            size_t nyblecount= *sizes.begin();
+            switch(nyblecount)
+            {
+                case 2: hex2binary(pattern, data);
+                        break;
+                case 4: {
+                            std::vector<uint16_t> v;
+                            hex2binary(pattern, v);
+                            data.resize(v.size()*sizeof(uint16_t));
+                            for(int i=0 ; i<v.size() ; i++)
+                                set16le(&data[sizeof(uint16_t)*i], v[i]);
+                        }
+                        break;
+                case 8: {
+                            std::vector<uint32_t> v;
+                            hex2binary(pattern, v);
+                            data.resize(v.size()*sizeof(uint32_t));
+                            for(int i=0 ; i<v.size() ; i++)
+                                set32le(&data[sizeof(uint32_t)*i], v[i]);
+                        }
+                        break;
+                case 16:{
+                            std::vector<uint64_t> v;
+                            hex2binary(pattern, v);
+                            data.resize(v.size()*sizeof(uint64_t));
+                            for(int i=0 ; i<v.size() ; i++)
+                                set64le(&data[sizeof(uint64_t)*i], v[i]);
+                        }
+                        break;
+                default: hex2binary(pattern, data);
+                        break;
+            }
+        }
+        else {
+            hex2binary(pattern, data);
+        }
+        pattern.clear();
+        for (auto c : data)
+            pattern += stringformat("\\x%02x", c);
+        return true;
+    }
+    bool compile_guid_pattern()
+    {
+        ByteVector guid(16);
+        // wwwwwwww-xxxx-xxxx-bbbb-bbbbbbbbbbbb
+        
+        int i= 0;
+        auto p= &pattern[0];
+        auto pend= p+pattern.size();
+        while (p < pend) {
+            switch(i) {
+                case 0:
+                    {
+                    auto q= p;
+                    uint32_t l1= strtoul(p, &q, 16);
+                    if (*q!='-')
+                        return false;
+                    q++;
+                    set32le(&guid[i], l1);
+                    i += 4;
+                    }
+                    break;
+                case 4:
+                case 6:
+                    {
+                    auto q= p;
+                    uint16_t w= strtoul(p, &q, 16);
+                    if (*q!='-')
+                        return false;
+                    q++;
+                    set32le(&guid[i], w);
+                    i += 2;
+                    }
+                    break;
+                default:
+                    {
+                    size_t n= hex2binary(p, pend, &guid[i], &guid[0]+16);
+                    if (n!=8)
+                        return false;
+                    p= pend;
+                    i += n;
+                    }
+            }
+
+        }
+        return true;
+    }
+    std::string translate_pattern(std::string& apat)
+    {
+        std::string upat;
+        // translate [...] -> [...]\x00
+        // translate (...) { * | + | ? | {\d*,\d*} } \??  -> (...) QUANT
+        // normal  : not { * | + | ? | . | { | ( | ) | ^ | $ | [ | ] | \ }   -> .\x00
+        // \xXX    -> \xXX\x00
+        // (?[#:=!>]....)
+
+        std::string esc;
+        std::string charset;
+        std::string quantifier;
+
+        for (auto c : apat)
+        {
+            if (!esc.empty()) {
+                esc += c;
+                if (esc.size()>1) {
+                    if (esc[1]!='x' || esc.size()==4) {
+                        upat += esc;
+                        upat += "\\x00";
+                        esc.clear();
+                    }
+                }
+            }
+            else if (c=='\\') {
+                esc += c;
+            }
+            else if (!quantifier.empty()) {
+                quantifier += c;
+                if (c=='}') {
+                    upat += quantifier;
+                    quantifier.clear();
+                }
+            }
+            else if (!charset.empty()) {
+                charset += c;
+                if (c==']') {
+                    upat += charset;
+                    upat += "\\x00";
+                    charset.clear();
+                }
+            }
+            else if (c=='[') {
+                charset += c;
+            }
+            else if (c=='{') {
+                quantifier += c;
+            }
+            else if (c!='(' && c!=')' && c!='*' && c!='+' && c!='?' && c!='^' && c!='$') {
+                upat += c;
+                upat += "\\x00";
+            }
+            else {
+                upat += c;
+            }
+        }
+        return upat;
+    }
 };
 int main(int argc, char**argv)
 {
