@@ -1,9 +1,28 @@
 #include "util/rw/MmapReader.h"
+
+#ifdef USE_BOOST_REGEX
 #include <boost/regex.hpp>
+#define BASIC_REGEX boost::basic_regex
+#define REGEX_ITER  boost::regex_iterator
+#define REGEX_MATCH boost::regex_match
+#define PARTIALARG  , boost::match_partial
+#endif
+
+#ifdef USE_STD_REGEX
+#include <regex>
+#define BASIC_REGEX std::basic_regex
+#define REGEX_ITER  std::regex_iterator
+#define REGEX_MATCH std::regex_match
+#define PARTIALARG
+#endif
+
 #include <boost/format.hpp>
+#define FORMATTER boost::format
+
 #include "FileFunctions.h"
 #include "stringutils.h"
-
+#include "args.h"
+#include <set>
 
 // todo: why does  basic_regex<uint8_t>  throw a 'bad_cast' exception?
 
@@ -15,7 +34,9 @@ struct findstr {
     bool pattern_is_guid;// modifies verbose output, implies binary
     bool verbose;        // modifies ouput
     bool list_only;      // modifies ouput
+    bool count_only;     // modifies ouput
     bool readcontinuous; // read until ctrl-c, instead of until eof
+    uint64_t maxfilesize;
 
     std::string pattern;
     std::string unicodepattern;
@@ -28,7 +49,9 @@ struct findstr {
         pattern_is_guid(false),
         verbose(false),
         list_only(false),
-        readcontinuous(false)
+        count_only(false),
+        readcontinuous(false),
+        maxfilesize(0)
     {
     }
 
@@ -37,10 +60,10 @@ struct findstr {
     //     last   when only complete matches were found
     //     *      when partial match was found
     template<typename CB>
-    const char *searchrange(const boost::basic_regex<char>& re, const char *first, const char *last, CB cb)
+    const char *searchrange(const BASIC_REGEX<char>& re, const char *first, const char *last, CB cb)
     {
-        boost::regex_iterator<const char*> a(first, last, re, boost::match_partial);
-        boost::regex_iterator<const char*> b;
+        REGEX_ITER<const char*> a(first, last, re   PARTIALARG);
+        REGEX_ITER<const char*> b;
 
         const char *maxpartial= NULL;
         const char *maxmatch= NULL;
@@ -79,6 +102,7 @@ struct findstr {
         // see: http://www.boost.org/doc/libs/1_52_0/libs/regex/doc/html/boost_regex/partial_matches.html
 
         bool nameprinted= false;
+        int matchcount= 0;
         std::vector<char> buf(256);
         char *bufstart= &buf.front();
         char *bufend= bufstart+buf.size();
@@ -86,7 +110,7 @@ struct findstr {
 
         char *readptr= bufstart;
 
-        boost::basic_regex<char> re(pattern.c_str(), pattern.c_str()+pattern.size());
+        BASIC_REGEX<char> re(pattern.c_str(), pattern.c_str()+pattern.size());
 
         while (true)
         {
@@ -106,7 +130,10 @@ struct findstr {
 
             char *readend= readptr+n;
 
-            const char *partial= searchrange(re, bufstart, readend, [bufstart, offset, &nameprinted, this](const char *first, const char *last)->bool {
+            const char *partial= searchrange(re, bufstart, readend, [bufstart, offset, &nameprinted, &matchcount, this](const char *first, const char *last)->bool {
+                matchcount++;
+                if (count_only)
+                    return true;
                 if (list_only) {
                     std::cout << "-\n" << std::endl;
                     return false;
@@ -149,6 +176,8 @@ struct findstr {
 
             offset += n;
         }
+        if (count_only)
+            std::cout << boost::format("%6d %s\n") % matchcount % "-";
     }
     static boost::format guidstring(const uint8_t *p)
     {
@@ -161,18 +190,28 @@ struct findstr {
     }
     void searchfile(const std::string& fn)
     {
-        if (GetFileSize(fn)==0)
+        uint64_t filesize= GetFileSize(fn);
+        if (filesize==0)
             return;
+        if (maxfilesize && filesize>=maxfilesize) {
+            if (verbose)
+                std::cout << "skipping large file " << fn << std::endl;
+            return;
+        }
 
         //printf("searching %s\n", fn.c_str());
         bool nameprinted= false;
+        int matchcount= 0;
         MmapReader r(fn, MmapReader::readonly);
         const char*filefirst= (const char*)r.begin();
         const char*filelast= (const char*)r.end();
 
-        boost::basic_regex<char> re(pattern.c_str(), pattern.c_str()+pattern.size());
+        BASIC_REGEX<char> re(pattern.c_str(), pattern.c_str()+pattern.size());
 
-        searchrange(re, filefirst, filelast, [&fn, filefirst, &nameprinted, this](const char *first, const char *last)->bool {
+        searchrange(re, filefirst, filelast, [&fn, filefirst, &nameprinted, &matchcount, this](const char *first, const char *last)->bool {
+            matchcount++;
+            if (count_only)
+                return true;
             if (list_only) {
                 std::cout << fn << std::endl;
                 return false;
@@ -199,6 +238,8 @@ struct findstr {
             return true;
         });
 
+        if (count_only)
+            std::cout << boost::format("%6d %s\n") % matchcount % fn;
         if (nameprinted)
             std::cout << std::endl;
     }
@@ -377,11 +418,62 @@ struct findstr {
         return upat;
     }
 };
+struct tokenize {
+    std::string str;
+    char sep;
+    struct token {
+        std::string::const_iterator i;
+        std::string::const_iterator last;
+        char sep;
+        token(
+            std::string::const_iterator i,
+            std::string::const_iterator last,
+            char sep)
+            : i(i), last(last), sep(sep)
+        {
+        }
+        std::string operator*() const
+        {
+            auto isep= std::find(i, last, sep);
+            return std::string(i, isep);
+        }
+        token& operator++()
+        {
+            ++i;
+            i= std::find(i, last, sep);
+
+            return *this;
+        }
+        token operator++(int)
+        {
+            token copy= *this;
+            operator++();
+            return copy;
+        }
+        bool operator!=(const token& rhs) const
+        {
+            return i!=rhs.i;
+        }
+    };
+    tokenize(const std::string& str, char sep)
+        : str(str), sep(sep)
+    {
+    }
+    token begin() const
+    {
+        return token(str.begin(), str.end(), sep);
+    }
+    token end() const
+    {
+        return token(str.end(), str.end(), sep);
+    }
+};
 int main(int argc, char**argv)
 {
     bool recurse_dirs= false;
     StringList args;
     findstr  f;
+    std::string excludepaths;
 
     for (int i=1 ; i<argc ; i++)
     {
@@ -395,7 +487,10 @@ int main(int argc, char**argv)
             case 'v': f.verbose= true; break;
             case 'r': recurse_dirs= true; break;
             case 'l': f.list_only= true; break;
+            case 'c': f.count_only= true; break;
             case 'f': f.readcontinuous= true; break;
+            case 'M': getarg(argv, i, argc, f.maxfilesize); break;
+            case 'X': getarg(argv, i, argc, excludepaths); break;
             case 0:
                       args.push_back("-");
         }
@@ -407,6 +502,10 @@ int main(int argc, char**argv)
     }
     //printf("pattern: %s,   #args=%zd\n", f.pattern.c_str(), args.size());
 
+    std::set<std::string> exclude;
+    for (auto i : tokenize(excludepaths, ':'))
+        exclude.insert(i);
+
     if (args.empty())
         args.push_back("-");
     if (!f.compile_pattern())
@@ -414,7 +513,12 @@ int main(int argc, char**argv)
 
     for (auto const&arg : args) {
         if (GetFileInfo(arg)==AT_ISDIRECTORY)
-            dir_iterator(arg, [&f](const std::string& fn) { f.searchfile(fn); }, [recurse_dirs](const std::string& fn)->bool { return recurse_dirs; } );
+            dir_iterator(arg,
+                [&](const std::string& fn) { f.searchfile(fn); },
+                [recurse_dirs,&exclude](const std::string& fn)->bool { 
+                    return exclude.find(fn)==exclude.end() && recurse_dirs;
+                }
+            );
         else if (arg == "-")
             f.searchstdin();
         else
