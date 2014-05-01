@@ -25,6 +25,7 @@
 #include <set>
 
 // todo: why does  basic_regex<uint8_t>  throw a 'bad_cast' exception?
+// todo: in sometimes a simple std::search may be faster.
 
 struct findstr {
     bool matchword;      // modifies pattern
@@ -103,7 +104,7 @@ struct findstr {
 
         bool nameprinted= false;
         int matchcount= 0;
-        std::vector<char> buf(256);
+        std::vector<char> buf(0x100000);
         char *bufstart= &buf.front();
         char *bufend= bufstart+buf.size();
         uint64_t offset= 0;
