@@ -23,10 +23,11 @@
 #include "stringutils.h"
 #include "args.h"
 #include <set>
+#include <iostream>
 
 // todo: why does  basic_regex<uint8_t>  throw a 'bad_cast' exception?
 // todo: in sometimes a simple std::search may be faster.
-
+// todo: implement case (in)sensitivity
 struct findstr {
     bool matchword;      // modifies pattern
     bool matchbinary;    // modifies pattern, modifies verbose output
@@ -207,7 +208,7 @@ struct findstr {
         const char*filefirst= (const char*)r.begin();
         const char*filelast= (const char*)r.end();
 
-        BASIC_REGEX<char> re(pattern.c_str(), pattern.c_str()+pattern.size());
+        BASIC_REGEX<char> re(pattern.c_str(), pattern.c_str()+pattern.size(), boost::regex_constants::icase);
 
         searchrange(re, filefirst, filelast, [&fn, filefirst, &nameprinted, &matchcount, this](const char *first, const char *last)->bool {
             matchcount++;
@@ -259,6 +260,7 @@ struct findstr {
     }
     bool compile_hex_pattern()
     {
+        // todo: add support for wildcards in pattern
         std::set<int> sizes;
 
         auto i= pattern.begin();
