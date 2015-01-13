@@ -15,4 +15,5 @@ CFLAGS+=-Wall -std=c++1y -g -O0  -DUSE_BOOST_REGEX
 clean:
 	$(RM) findstr $(wildcard *.o)
 
-
+install:
+	cp findstr ~/bin/
