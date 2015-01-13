@@ -25,6 +25,14 @@
 #include <set>
 #include <iostream>
 
+#define catchall(call, arg) \
+    try { \
+        call; \
+    } \
+    catch(...) { \
+        printf("EXCEPTION opening %s\n", arg.c_str()); \
+    }
+
 // todo: why does  basic_regex<uint8_t>  throw a 'bad_cast' exception?
 // todo: in sometimes a simple std::search may be faster.
 // todo: implement case (in)sensitivity
@@ -517,7 +525,7 @@ int main(int argc, char**argv)
     for (auto const&arg : args) {
         if (GetFileInfo(arg)==AT_ISDIRECTORY)
             dir_iterator(arg,
-                [&](const std::string& fn) { f.searchfile(fn); },
+                [&](const std::string& fn) { catchall(f.searchfile(fn), fn); },
                 [recurse_dirs,&exclude](const std::string& fn)->bool { 
                     return exclude.find(fn)==exclude.end() && recurse_dirs;
                 }
@@ -525,7 +533,7 @@ int main(int argc, char**argv)
         else if (arg == "-")
             f.searchstdin();
         else
-            f.searchfile(arg);
+            catchall(f.searchfile(arg), arg);
     }
 
     return 0;
