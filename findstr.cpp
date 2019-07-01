@@ -211,42 +211,28 @@ public:
 };
 
 /*
- * The various search algoritms implemented in findstr.
+ *   the various search implementations
  */
-enum SearchType {
-    REGEX_SEARCH,
-    STD_SEARCH,
-    STD_BOYER_MOORE,
-    STD_BOYER_MOORE_HORSPOOL,
-    BOOST_BOYER_MOORE,
-    BOOST_BOYER_MOORE_HORSPOOL,
-    BOOST_KNUTH_MORRIS_PRATT,
+typedef std::function<bool(const char*, const char*)>  CallbackType;
+class SearchBase {
+public:
+    virtual ~SearchBase() { }
+    virtual const char *search(const char *first, const char *last, CallbackType cb) = 0;
 };
-struct findstr {
-    bool matchword = false;      // modifies pattern
-    bool matchbinary = false;    // modifies pattern, modifies verbose output
-    bool matchcase = false;      // modifies pattern
-    bool pattern_is_hex = false; // modifies verbose output, implies binary
-    bool pattern_is_guid = false;// modifies verbose output, implies binary
-    bool verbose = false;        // modifies ouput
-    bool list_only = false;      // modifies ouput
-    bool count_only = false;     // modifies ouput
-    bool readcontinuous = false; // read until ctrl-c, instead of until eof
-    bool use_sequential = false; // use read, instead of mmap
-    uint64_t maxfilesize = 0;
-    bool nameprinted = false;
-    int matchcount = 0;
-    SearchType searchtype = REGEX_SEARCH;
+class regexsearcher : public SearchBase {
+    const BASIC_REGEX<char> re;
+public:
+    regexsearcher(const std::string& pattern, bool matchcase)
+        : re(pattern.c_str(), pattern.c_str()+pattern.size(), matchcase ? REGEX_CONST::nosubs : REGEX_CONST::nosubs|REGEX_CONST::icase)
+    {
 
-    std::string pattern;
-    std::vector<std::pair<std::vector<uint8_t>,std::vector<uint8_t>>> bytemasks;
+    }
 
     // returns:
     //     NULL   when final match found
     //     last   when only complete matches were found
     //     *      when partial match was found
-    template<typename CB>
-    const char *regexsearch(const BASIC_REGEX<char>& re, const char *first, const char *last, CB cb)
+    const char *search(const char *first, const char *last, CallbackType cb)
     {
         REGEX_ITER<const char*> a(first, last, re   PARTIALARG);
         REGEX_ITER<const char*> b;
@@ -281,50 +267,82 @@ struct findstr {
         //printf("searchrange: partial match @%lx\n", maxpartial-first);
         return maxpartial;
     }
+};
 
-    /*
-     *  perform any of the standard library search algorithms.
-     */
-    template<typename SEARCH, typename CB>
-    const char *stringsearch(const char *first, const char *last, CB cb)
+typedef std::pair<std::vector<uint8_t>,std::vector<uint8_t>> ByteMaskType;
+
+/*
+ *  plain stringsearch, ignoring wildcards.
+ */
+template<typename SEARCH>
+class stringsearch : public SearchBase {
+    std::vector<std::tuple<size_t, SEARCH>> patterns;
+public:
+    stringsearch(const std::vector<ByteMaskType> & bytemasks)
     {
-        for (auto& hp : bytemasks)
-        {
-            auto searcher =  SEARCH((const char*)&hp.first.front(), (const char*)&hp.first.front()+hp.first.size());
-            auto p = first;
-            while (p!=last) {
-                auto f = std::search(p, last, searcher);
-                if (f == last)
-                    break;
-                cb((const char*)f, (const char*)f+hp.first.size());
-                p = f+1;
-            }
+        for (auto& hp : bytemasks) {
+            auto & data = hp.first;
+            patterns.emplace_back(data.size(), SEARCH{(const char*)&data.front(), (const char*)&data.front() + data.size()});
         }
-        return last;
     }
 
     /*
      *  perform any of the boost library search algorithms.
      */
-    template<typename SEARCH, typename CB>
-    const char *boostsearch(const char *first, const char *last, CB cb)
+    const char *search(const char *first, const char *last, CallbackType cb)
     {
-        for (auto& hp : bytemasks)
+        for (auto& hp : patterns)
         {
-            //auto searcher =  std::experimental::boyer_moore_searcher(hp.first.begin(), hp.first.end());
-            //auto searcher =  std::experimental::boyer_moore_horspool_searcher(hp.first.begin(), hp.first.end());
-            auto searcher =  SEARCH((const char*)&hp.first.front(), (const char*)&hp.first.front()+hp.first.size());
+            auto size = std::get<0>(hp);
+            auto & searcher = std::get<1>(hp);
+
             auto p = first;
             while (p!=last) {
-                auto f = searcher(p, last);
-                if (f.first == last)
+                auto f = std::search(p, last, searcher);
+                if (f == last)
                     break;
-                cb((const char*)f.first, (const char*)f.first+hp.first.size());
-                p = f.first+1;
+                cb((const char*)f, (const char*)f + size);
+                p = f + 1;
             }
         }
         return last;
     }
+};
+/*
+ * The various search algoritms implemented in findstr.
+ */
+enum SearchType {
+    REGEX_SEARCH,
+    STD_SEARCH,
+    STD_BOYER_MOORE,
+    STD_BOYER_MOORE_HORSPOOL,
+    BOOST_BOYER_MOORE,
+    BOOST_BOYER_MOORE_HORSPOOL,
+    BOOST_KNUTH_MORRIS_PRATT,
+
+    // TODO: add bytemask search
+};
+
+
+struct findstr {
+    bool matchword = false;      // modifies pattern
+    bool matchbinary = false;    // modifies pattern, modifies verbose output
+    bool matchcase = false;      // modifies pattern
+    bool pattern_is_hex = false; // modifies verbose output, implies binary
+    bool pattern_is_guid = false;// modifies verbose output, implies binary
+    bool verbose = false;        // modifies ouput
+    bool list_only = false;      // modifies ouput
+    bool count_only = false;     // modifies ouput
+    bool readcontinuous = false; // read until ctrl-c, instead of until eof
+    bool use_sequential = false; // use read, instead of mmap
+    uint64_t maxfilesize = 0;
+    bool nameprinted = false;
+    int matchcount = 0;
+    SearchType searchtype = REGEX_SEARCH;
+
+    std::string pattern;
+    std::vector<ByteMaskType> bytemasks;
+
 
     void searchstdin()
     {
@@ -332,8 +350,6 @@ struct findstr {
         searchsequential(f, "-");
     }
 
-    // TODO: extract 'searchers'  into a search wrapper,
-    //       one for regex, one for boost, one for std.
     void searchsequential(filehandle& f, const std::string& origin)
     {
         //printf("searching stdin\n");
@@ -347,9 +363,9 @@ struct findstr {
         char *bufend= bufstart+buf.size();
         uint64_t offset= 0;
 
-        char *readptr= bufstart;
+        auto searcher = makesearcher();
 
-        BASIC_REGEX<char> re(pattern.c_str(), pattern.c_str()+pattern.size(), matchcase ? REGEX_CONST::nosubs : REGEX_CONST::nosubs|REGEX_CONST::icase);
+        char *readptr= bufstart;
 
         while (true)
         {
@@ -375,7 +391,7 @@ struct findstr {
             char *readend= readptr+n;
             const char *partial;
 
-            partial = search(re, bufstart, readend, [&origin, bufstart, offset, this](const char *first, const char *last)->bool {
+            partial = searcher->search(bufstart, readend, [&origin, bufstart, offset, this](const char *first, const char *last)->bool {
                 return writeresult(origin, bufstart, offset, first, last);
             });
 
@@ -442,11 +458,11 @@ struct findstr {
         nameprinted= false;
         matchcount= 0;
 
-        BASIC_REGEX<char> re(pattern.c_str(), pattern.c_str()+pattern.size(), matchcase ? REGEX_CONST::nosubs : REGEX_CONST::nosubs|REGEX_CONST::icase);
+        auto searcher = makesearcher();
 
         auto bufstart = (const char*)r.begin();
 
-        search(re, bufstart, (const char*)r.end(), [&origin, bufstart, this](const char *first, const char *last)->bool {
+        searcher->search(bufstart, (const char*)r.end(), [&origin, bufstart, this](const char *first, const char *last)->bool {
             return writeresult(origin, bufstart, 0, first, last);
         });
 
@@ -487,34 +503,6 @@ struct findstr {
         return true;
     }
 
-
-    template<typename CB>
-    const char *search(const BASIC_REGEX<char>& re, const char*bufstart, const char*bufend, CB callback)
-    {
-        switch(searchtype) {
-        case REGEX_SEARCH:
-            return regexsearch(re, bufstart, bufend, callback);
-        case STD_SEARCH:
-            return stringsearch<std::experimental::default_searcher<const char*>, CB>(bufstart, bufend, callback);
-            break;
-        case STD_BOYER_MOORE:
-            return stringsearch<std::experimental::boyer_moore_searcher<const char*>, CB>(bufstart, bufend, callback);
-            break;
-        case STD_BOYER_MOORE_HORSPOOL:
-            return stringsearch<std::experimental::boyer_moore_horspool_searcher<const char*>, CB>(bufstart, bufend, callback);
-            break;
-        case BOOST_BOYER_MOORE:
-            return boostsearch<boost::algorithm::boyer_moore<const char*>, CB>(bufstart, bufend, callback);
-            break;
-        case BOOST_BOYER_MOORE_HORSPOOL:
-            return boostsearch<boost::algorithm::boyer_moore_horspool<const char*>, CB>(bufstart, bufend, callback);
-            break;
-        case BOOST_KNUTH_MORRIS_PRATT:
-            return boostsearch<boost::algorithm::knuth_morris_pratt<const char*>, CB>(bufstart, bufend, callback);
-            break;
-        }
-    }
-
     bool compile_pattern()
     {
         if (pattern_is_hex) {
@@ -523,10 +511,65 @@ struct findstr {
         else if (pattern_is_guid) {
             return compile_guid_pattern();
         }
-        else if (!matchbinary) {
-            pattern = pattern + "|" + make_unicode_pattern(pattern);
+        else {
+            if (searchtype != REGEX_SEARCH)
+                calculatebytemask();
+            if (!matchbinary) {
+                pattern = pattern + "|" + make_unicode_pattern(pattern, 2) + "|" + make_unicode_pattern(pattern, 4);
+
+                int n = bytemasks.size();
+                for (int i=0 ; i<n ; i++) {
+                    bytemasks.emplace_back(make_unicode_bytemask(bytemasks[i], 2));
+                    bytemasks.emplace_back(make_unicode_bytemask(bytemasks[i], 4));
+                }
+            }
         }
         return true;
+    }
+    ByteMaskType make_unicode_bytemask(const ByteMaskType& bm, int size)
+    {
+        std::vector<uint8_t> data;
+        std::vector<uint8_t> mask;
+        for (int i = 0 ; i < bm.first.size() ; i++)
+        {
+            data.push_back(bm.first[i]);
+            data.push_back(0);
+            if (size==4) {
+                data.push_back(0);
+                data.push_back(0);
+            }
+            mask.push_back(bm.second[i]);
+            mask.push_back(0);
+            if (size==4) {
+                mask.push_back(0);
+                mask.push_back(0);
+            }
+        }
+        return std::make_pair(data, mask);
+    }
+
+    void calculatebytemask()
+    {
+        std::vector<std::string> patternlist;
+
+        auto i = pattern.c_str();
+        auto last = pattern.c_str() + pattern.size();
+        while (i != last)
+        {
+            auto j = std::find(i, last, '|');
+            patternlist.emplace_back(i, j);
+            i = (j==last) ? j : j+1;
+        }
+
+        for (auto & txt : patternlist) {
+            std::vector<uint8_t> data = converttext(txt);
+            std::vector<uint8_t> mask(data.size(), 0xff);
+            bytemasks.emplace_back(data, mask);
+        }
+    }
+    std::vector<uint8_t> converttext(const std::string& txt)
+    {
+        return std::vector<uint8_t>((const uint8_t*)&txt.front(), (const uint8_t*)&txt.front()+txt.size());
     }
 
     bool compile_hex_pattern()
@@ -562,7 +605,25 @@ struct findstr {
         }
         return true;
     }
-
+    std::shared_ptr<SearchBase> makesearcher()
+    {
+        switch(searchtype) {
+        case REGEX_SEARCH:
+            return std::make_shared<regexsearcher>(pattern, matchcase);
+        case STD_SEARCH:
+            return std::make_shared<stringsearch<std::experimental::default_searcher<const char*>>>(bytemasks);
+        case STD_BOYER_MOORE:
+            return std::make_shared<stringsearch<std::experimental::boyer_moore_searcher<const char*>>>(bytemasks);
+        case STD_BOYER_MOORE_HORSPOOL:
+            return std::make_shared<stringsearch<std::experimental::boyer_moore_horspool_searcher<const char*>>>(bytemasks);
+        case BOOST_BOYER_MOORE:
+            return std::make_shared<stringsearch<boost::algorithm::boyer_moore<const char*>>>(bytemasks);
+        case BOOST_BOYER_MOORE_HORSPOOL:
+            return std::make_shared<stringsearch<boost::algorithm::boyer_moore_horspool<const char*>>>(bytemasks);
+        case BOOST_KNUTH_MORRIS_PRATT:
+            return std::make_shared<stringsearch<boost::algorithm::knuth_morris_pratt<const char*>>>(bytemasks);
+        }
+    }
 
     bool compile_guid_pattern()
     {
@@ -606,11 +667,11 @@ struct findstr {
                     i += n;
                     }
             }
-
         }
+        // TODO ... not complete yet, need to translate 'guid' into a bytemask or pattern.
         return true;
     }
-    std::string make_unicode_pattern(std::string& apat)
+    std::string make_unicode_pattern(std::string& apat, int size)
     {
         std::string upat;
         // translate [...] -> [...]\x00
@@ -619,9 +680,9 @@ struct findstr {
         // \xXX    -> \xXX\x00
         // (?[#:=!>]....)
 
-        std::string esc;
-        std::string charset;
-        std::string quantifier;
+        std::string esc;            // \\x
+        std::string charset;        // [a-z]
+        std::string quantifier;     // ...{n}
 
         for (auto c : apat)
         {
@@ -630,7 +691,7 @@ struct findstr {
                 if (esc.size()>1) {
                     if (esc[1]!='x' || esc.size()==4) {
                         upat += esc;
-                        upat += "\\x00";
+                        upat += size == 2 ? "\\x00" : "\\x00\\x00\\x00";
                         esc.clear();
                     }
                 }
@@ -649,7 +710,7 @@ struct findstr {
                 charset += c;
                 if (c==']') {
                     upat += charset;
-                    upat += "\\x00";
+                    upat += size == 2 ? "\\x00" : "\\x00\\x00\\x00";
                     charset.clear();
                 }
             }
@@ -659,11 +720,12 @@ struct findstr {
             else if (c=='{') {
                 quantifier += c;
             }
-            else if (c!='(' && c!=')' && c!='*' && c!='+' && c!='?' && c!='^' && c!='$') {
+            else if (c!='(' && c!=')' && c!='*' && c!='|' && c!='+' && c!='?' && c!='^' && c!='$') {
                 upat += c;
-                upat += "\\x00";
+                upat += size == 2 ? "\\x00" : "\\x00\\x00\\x00";
             }
             else {
+                // special regex token.
                 upat += c;
             }
         }
@@ -739,7 +801,7 @@ void usage()
     print("   -f       follow, keep checking file for new data\n");
     print("   -M NUM   max file size\n");
     //print("   -X LIST   exclude paths\n");
-    print("   -S       search algorithm: regex, std, stdbm, stdbmh, boostbm, boostbmh, boostkmp\n");
+    print("   -S NAME  search algorithm: regex, std, stdbm, stdbmh, boostbm, boostbmh, boostkmp\n");
     print("   -Q       use posix::read, instead of posix::mmap\n");
 }
 int main(int argc, char**argv)
