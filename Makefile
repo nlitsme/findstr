@@ -1,19 +1,17 @@
-findstr: findstr.o  stringutils.o
+BOOSTDIR=/usr/local
+findstr: findstr.o 
 
 %: %.o
-	clang++ -g -o $@ $^ -lboost_regex-mt
+	$(CXX) -g -o $@ $^ -O3 -L$(BOOSTDIR)/lib -lboost_regex-mt
 
-INCS=-I ../../itslib/include/itslib -I /usr/local/include
-CFLAGS+=-Wall -std=c++1y -g -O0  -DUSE_BOOST_REGEX
+INCS=-I ../../cpputils -I ../../hexdumper -I $(BOOSTDIR)/include
+CFLAGS+=-Wall -std=c++17 -g $(if $(D),-O0,-O3)  -DUSE_BOOST_REGEX
 
 %.o: %.cpp
-	clang++ $(CFLAGS) -c -o $@ $^ $(INCS)
-
-%.o: ../../itslib/src/%.cpp
-	clang++ $(CFLAGS) -c -o $@ $^ $(INCS)
+	$(CXX) $(CFLAGS) -c -o $@ $^ $(INCS)
 
 clean:
 	$(RM) findstr $(wildcard *.o)
 
-install:
+installbin:
 	cp findstr ~/bin/
