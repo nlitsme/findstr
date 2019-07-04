@@ -1,4 +1,14 @@
-// note: boost::regex is much faster than std::regex
+/*
+ * A tool for searching patterns, text, or hex in binaries.
+ *
+ * Author: (C) 2004-2019  Willem Hengeveld
+ */
+
+
+/*
+ * Choose between the boost and std library regex implementation
+ * note: boost::regex is much faster than std::regex
+ */
 #ifdef USE_BOOST_REGEX
 #include <boost/regex.hpp>
 #define BASIC_REGEX boost::basic_regex
@@ -54,9 +64,13 @@ using namespace std::string_literals;
         print("EXCEPTION in %s\n", arg); \
     }
 
+// TODO: move text pattern handling to a seperate class, like the hexpattern code.
+
 /*
- *
- *
+ *  class which defines how hex-patterns are handled:
+ *    - parsing
+ *    - convert to regex
+ *    - convert to bytemask
  */
 class hexpattern {
     std::string pattern;
@@ -102,10 +116,10 @@ public:
         for (auto c : chunk)
         {
             int nyble = convertnyble(c);
-            if (nyble==-1)
+            if (nyble == -1)
                 continue;
 
-            if (nyble==-2) {
+            if (nyble == -2) {
                 if (hi) {
                     datavalue = 0;
                     maskvalue = 0;
@@ -135,9 +149,8 @@ public:
     /*
      *  decodes the hex pattern into a pair of 'data' and 'mask'
      *  where 'mask' indicates the wildcards.
-     *
      */
-    auto decode()
+    auto getbytemasks()
     {
         auto validdigit = [](char c){ return c == '?' || isxdigit(c); };
         auto invaliddigit = [&](char c){ return !validdigit(c); };
@@ -145,15 +158,15 @@ public:
         // determine pattern word size, and split into chunks.
         std::vector<std::string> chunks;
         std::set<int> sizes;
-        auto i= pattern.c_str();
+        auto i = pattern.c_str();
         auto last = pattern.c_str() + pattern.size();
-        while (i!=last) {
-            auto j= std::find_if(i, last, validdigit);
-            if (j==last)
+        while (i != last) {
+            auto j = std::find_if(i, last, validdigit);
+            if (j == last)
                 break;
-            i= std::find_if(j, last, invaliddigit);
+            i = std::find_if(j, last, invaliddigit);
             chunks.emplace_back(j,i);
-            sizes.insert(i-j);
+            sizes.insert(i - j);
         }
 
         std::vector<uint8_t> data;
@@ -185,20 +198,20 @@ public:
      */
     std::string getregex()
     {
-        auto datamask = decode();
+        auto datamask = getbytemasks();
 
         std::string regex;
-        for (int i=0 ; i<datamask.first.size() ; i++)
+        for (int i = 0 ; i < datamask.first.size() ; i++)
         {
             switch(datamask.second[i])
             {
                 case 0: regex += "."; break;
-                case 0xF0: regex += stringformat("[\\x%02x-\\x%02x]", datamask.first[i]&0xF0, (datamask.first[i]&0xF0) | 0x0F); break;
+                case 0xF0: regex += stringformat("[\\x%02x-\\x%02x]", datamask.first[i] & 0xF0, (datamask.first[i] & 0xF0) | 0x0F); break;
                 case 0x0F:
                            {
                                regex += "[";
                                for (int c = 0 ; c < 0x100 ; c += 0x10)
-                                   regex += stringformat("\\x%02x", c+(datamask.first[i]&0x0F));
+                                   regex += stringformat("\\x%02x", c + (datamask.first[i] & 0x0F));
                                regex += "]";
                            }
                            break;
@@ -209,6 +222,7 @@ public:
         return regex;
     }
 };
+
 
 /*
  *   the various search implementations
@@ -223,7 +237,7 @@ class regexsearcher : public SearchBase {
     const BASIC_REGEX<char> re;
 public:
     regexsearcher(const std::string& pattern, bool matchcase)
-        : re(pattern.c_str(), pattern.c_str()+pattern.size(), matchcase ? REGEX_CONST::nosubs : REGEX_CONST::nosubs|REGEX_CONST::icase)
+        : re(pattern.c_str(), pattern.c_str() + pattern.size(), matchcase ? REGEX_CONST::nosubs : REGEX_CONST::nosubs | REGEX_CONST::icase)
     {
 
     }
@@ -237,29 +251,29 @@ public:
         REGEX_ITER<const char*> a(first, last, re   PARTIALARG);
         REGEX_ITER<const char*> b;
 
-        const char *maxpartial= NULL;
-        const char *maxmatch= NULL;
+        const char *maxpartial = NULL;
+        const char *maxmatch = NULL;
 
         //printf("searchrange(%p, %p)\n", first, last);
-        while (a!=b) {
-            auto m= (*a)[0];
+        while (a != b) {
+            auto m = (*a)[0];
             //printf("    match %d  %p..%p\n", m.matched, m.first, m.second);
             if (m.matched) {
                 if (!cb(m.first, m.second)) {
                     //printf("searchrange: stopping\n");
                     return NULL;
                 }
-                if (maxmatch==NULL || maxmatch<m.first)
-                    maxmatch= m.first;
+                if (maxmatch == NULL || maxmatch < m.first)
+                    maxmatch = m.first;
             }
             else {
-                if (maxpartial==NULL || maxpartial<m.first)
-                    maxpartial= m.first;
+                if (maxpartial == NULL || maxpartial < m.first)
+                    maxpartial = m.first;
             }
 
             ++a;
         }
-        if ((maxmatch==NULL && maxpartial==NULL) || maxmatch>maxpartial) {
+        if ((maxmatch == NULL && maxpartial == NULL) || maxmatch > maxpartial) {
             //printf("searchrange: no partial match\n");
             return last;
         }
@@ -297,7 +311,7 @@ public:
             auto & searcher = std::get<1>(hp);
 
             auto p = first;
-            while (p!=last) {
+            while (p != last) {
                 auto f = std::search(p, last, searcher);
                 if (f == last)
                     break;
@@ -355,24 +369,24 @@ struct findstr {
         //printf("searching stdin\n");
         // see: http://www.boost.org/doc/libs/1_52_0/libs/regex/doc/html/boost_regex/partial_matches.html
 
-        nameprinted= false;
-        matchcount= 0;
+        nameprinted = false;
+        matchcount = 0;
 
         std::vector<char> buf(0x100000);
-        char *bufstart= &buf.front();
-        char *bufend= bufstart+buf.size();
-        uint64_t offset= 0;
+        char *bufstart = &buf.front();
+        char *bufend = bufstart + buf.size();
+        uint64_t offset = 0;
 
         auto searcher = makesearcher();
 
-        char *readptr= bufstart;
+        char *readptr = bufstart;
 
         while (true)
         {
-            int needed= bufend-readptr;
-            //print("%08x ; %x: needed= %d -> %p .. %p .. %p\n", offset, lseek(f, 0, 1), needed, bufstart, readptr, bufend);
-            int n= read(f, readptr, needed);
-            if (n==0) {
+            int needed = bufend - readptr;
+            //print("%08x ; %x: needed = %d -> %p .. %p .. %p\n", offset, lseek(f, 0, 1), needed, bufstart, readptr, bufend);
+            int n = read(f, readptr, needed);
+            if (n == 0) {
                 if (readcontinuous) {
                     //printf("stdin: waiting for more\n");
                     usleep(100);
@@ -381,14 +395,14 @@ struct findstr {
                 //print("read empty(need=%d), pos=%d\n", needed, lseek(f, 0, 1));
                 break;
             }
-            else if (n>needed || n<0)
+            else if (n > needed || n < 0)
             {
                 //perror("read");
                 //print("n=%d\n", n);
                 break;
             }
 
-            char *readend= readptr+n;
+            char *readend = readptr + n;
             const char *partial;
 
             partial = searcher->search(bufstart, readend, [&origin, bufstart, offset, this](const char *first, const char *last)->bool {
@@ -396,17 +410,17 @@ struct findstr {
             });
 
             // avoid too large partial matches
-            if (partial-bufstart < (int)buf.size()/2)
-                partial=bufstart+buf.size()/2;
+            if (partial - bufstart < (int)buf.size()/2)
+                partial = bufstart + buf.size()/2;
 
             // relocate data for partial matches
-            if (partial<readend) {
-                memcpy(bufstart, partial, readend-partial);
-                readptr= bufstart+(readend-partial);
-                n -= (readend-partial);
+            if (partial < readend) {
+                memcpy(bufstart, partial, readend - partial);
+                readptr = bufstart + (readend - partial);
+                n -= (readend - partial);
             }
             else {
-                readptr= bufstart;
+                readptr = bufstart;
             }
 
             offset += n;
@@ -415,19 +429,6 @@ struct findstr {
             print("%6d %s\n", matchcount, "-");
         if (nameprinted)
             print("\n");
-    }
-    static std::string guidstring(const uint8_t *p)
-    {
-        struct guid {
-            uint32_t a;
-            uint16_t b;
-            uint16_t c;
-            uint8_t  d[8];
-        };
-        const guid *g = (const guid*)p;
-        return stringformat("%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-                g->a, g->b, g->c, g->d[0], g->d[1],
-                g->d[2], g->d[3], g->d[4], g->d[5], g->d[6], g->d[7]);
     }
     void searchfile(const std::string& fn)
     {
@@ -438,7 +439,7 @@ struct findstr {
     void searchhandle(filehandle& f, const std::string& origin)
     {
         auto size = f.size();
-        if (size==0)
+        if (size == 0)
             return;
         else if (use_sequential || size < 0)
             searchsequential(f, origin);
@@ -447,7 +448,7 @@ struct findstr {
     }
     void searchmmap(filehandle& f, uint64_t fsize, const std::string& origin)
     {
-        if (maxfilesize && fsize>=maxfilesize) {
+        if (maxfilesize && fsize >= maxfilesize) {
             if (verbose)
                 print("skipping large file %s\n", origin);
             return;
@@ -455,8 +456,8 @@ struct findstr {
 
         mappedmem r(f, 0, fsize, PROT_READ);
 
-        nameprinted= false;
-        matchcount= 0;
+        nameprinted = false;
+        matchcount = 0;
 
         auto searcher = makesearcher();
 
@@ -473,7 +474,21 @@ struct findstr {
             print("\n");
 
     }
-    bool writeresult(const std::string&origin, const char *bufstart, uint64_t offset, const char *first, const char *last)
+    static std::string guidstring(const uint8_t *p)
+    {
+        struct guid {
+            uint32_t a;
+            uint16_t b;
+            uint16_t c;
+            uint8_t  d[8];
+        };
+        const guid *g = (const guid*)p;
+        return stringformat("%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+                g->a, g->b, g->c, g->d[0], g->d[1],
+                g->d[2], g->d[3], g->d[4], g->d[5], g->d[6], g->d[7]);
+    }
+
+    bool writeresult(const std::string& origin, const char *bufstart, uint64_t offset, const char *first, const char *last)
     {
         matchcount++;
         if (count_only)
@@ -484,11 +499,11 @@ struct findstr {
         }
         else if (verbose) {
             if (matchbinary)
-                print("%s %08x %-b\n", origin, offset+first-bufstart, Hex::dumper((const uint8_t*)first, last-first));
+                print("%s %08x %-b\n", origin, offset + first - bufstart, Hex::dumper((const uint8_t*)first, last - first));
             else if (pattern_is_guid)                                                 
-                print("%s %08x %s\n", origin, offset+first-bufstart, guidstring((const uint8_t*)first));
+                print("%s %08x %s\n", origin, offset + first - bufstart, guidstring((const uint8_t*)first));
             else                                                                 
-                print("%s %08x %+b\n", origin, offset+first-bufstart, Hex::dumper((const uint8_t*)first, last-first));
+                print("%s %08x %+b\n", origin, offset + first - bufstart, Hex::dumper((const uint8_t*)first, last - first));
         }
         else {
             if (!nameprinted) {
@@ -497,8 +512,8 @@ struct findstr {
             else {
                 print(", ");
             }
-            print("%08x", offset+first-bufstart);
-            nameprinted= true;
+            print("%08x", offset + first - bufstart);
+            nameprinted = true;
         }
         return true;
     }
@@ -518,7 +533,7 @@ struct findstr {
                 pattern = pattern + "|" + make_unicode_pattern(pattern, 2) + "|" + make_unicode_pattern(pattern, 4);
 
                 int n = bytemasks.size();
-                for (int i=0 ; i<n ; i++) {
+                for (int i = 0 ; i < n ; i++) {
                     bytemasks.emplace_back(make_unicode_bytemask(bytemasks[i], 2));
                     bytemasks.emplace_back(make_unicode_bytemask(bytemasks[i], 4));
                 }
@@ -534,13 +549,13 @@ struct findstr {
         {
             data.push_back(bm.first[i]);
             data.push_back(0);
-            if (size==4) {
+            if (size == 4) {
                 data.push_back(0);
                 data.push_back(0);
             }
             mask.push_back(bm.second[i]);
             mask.push_back(0);
-            if (size==4) {
+            if (size == 4) {
                 mask.push_back(0);
                 mask.push_back(0);
             }
@@ -558,7 +573,7 @@ struct findstr {
         {
             auto j = std::find(i, last, '|');
             patternlist.emplace_back(i, j);
-            i = (j==last) ? j : j+1;
+            i = (j == last) ? j : j + 1;
         }
 
         for (auto & txt : patternlist) {
@@ -569,7 +584,7 @@ struct findstr {
     }
     std::vector<uint8_t> converttext(const std::string& txt)
     {
-        return std::vector<uint8_t>((const uint8_t*)&txt.front(), (const uint8_t*)&txt.front()+txt.size());
+        return std::vector<uint8_t>((const uint8_t*)&txt.front(), (const uint8_t*)&txt.front() + txt.size());
     }
 
     bool compile_hex_pattern()
@@ -587,7 +602,7 @@ struct findstr {
         {
             auto j = std::find(i, last, '|');
             patternlist.emplace_back(i, j);
-            i = (j==last) ? j : j+1;
+            i = (j == last) ? j : j + 1;
         }
 
         if (searchtype == REGEX_SEARCH) {
@@ -601,7 +616,7 @@ struct findstr {
         }
         else {
             for (auto & hp : patternlist)
-                bytemasks.push_back(hp.decode());
+                bytemasks.push_back(hp.getbytemasks());
         }
         return true;
     }
@@ -630,16 +645,16 @@ struct findstr {
         std::vector<uint8_t> guid(16);
         // wwwwwwww-xxxx-xxxx-bbbb-bbbbbbbbbbbb
         
-        int i= 0;
-        auto p= &pattern[0];
-        auto pend= p+pattern.size();
+        int i = 0;
+        auto p = &pattern[0];
+        auto pend = p + pattern.size();
         while (p < pend) {
             switch(i) {
                 case 0:
                     {
-                    auto q= p;
-                    uint32_t l1= strtoul(p, &q, 16);
-                    if (*q!='-')
+                    auto q = p;
+                    uint32_t l1 = strtoul(p, &q, 16);
+                    if (*q != '-')
                         return false;
                     q++;
                     unchecked::set32le(&guid[i], l1);
@@ -649,9 +664,9 @@ struct findstr {
                 case 4:
                 case 6:
                     {
-                    auto q= p;
-                    uint16_t w= strtoul(p, &q, 16);
-                    if (*q!='-')
+                    auto q = p;
+                    uint16_t w = strtoul(p, &q, 16);
+                    if (*q != '-')
                         return false;
                     q++;
                     unchecked::set32le(&guid[i], w);
@@ -660,10 +675,10 @@ struct findstr {
                     break;
                 default:
                     {
-                    size_t n= hex2binary(p, pend, &guid[i], &guid[0]+16);
-                    if (n!=8)
+                    size_t n = hex2binary(p, pend, &guid[i], &guid[0] + 16);
+                    if (n != 8)
                         return false;
-                    p= pend;
+                    p = pend;
                     i += n;
                     }
             }
@@ -688,39 +703,39 @@ struct findstr {
         {
             if (!esc.empty()) {
                 esc += c;
-                if (esc.size()>1) {
-                    if (esc[1]!='x' || esc.size()==4) {
+                if (esc.size() > 1) {
+                    if (esc[1] != 'x' || esc.size() == 4) {
                         upat += esc;
                         upat += size == 2 ? "\\x00" : "\\x00\\x00\\x00";
                         esc.clear();
                     }
                 }
             }
-            else if (c=='\\') {
+            else if (c == '\\') {
                 esc += c;
             }
             else if (!quantifier.empty()) {
                 quantifier += c;
-                if (c=='}') {
+                if (c == '}') {
                     upat += quantifier;
                     quantifier.clear();
                 }
             }
             else if (!charset.empty()) {
                 charset += c;
-                if (c==']') {
+                if (c == ']') {
                     upat += charset;
                     upat += size == 2 ? "\\x00" : "\\x00\\x00\\x00";
                     charset.clear();
                 }
             }
-            else if (c=='[') {
+            else if (c == '[') {
                 charset += c;
             }
-            else if (c=='{') {
+            else if (c =='{') {
                 quantifier += c;
             }
-            else if (c!='(' && c!=')' && c!='*' && c!='|' && c!='+' && c!='?' && c!='^' && c!='$') {
+            else if (c != '(' && c != ')' && c != '*' && c != '|' && c != '+' && c != '?' && c != '^' && c != '$') {
                 upat += c;
                 upat += size == 2 ? "\\x00" : "\\x00\\x00\\x00";
             }
@@ -752,25 +767,25 @@ struct tokenize {
         }
         std::string operator*() const
         {
-            auto isep= std::find(i, last, sep);
+            auto isep = std::find(i, last, sep);
             return std::string(i, isep);
         }
         token& operator++()
         {
             ++i;
-            i= std::find(i, last, sep);
+            i = std::find(i, last, sep);
 
             return *this;
         }
         token operator++(int)
         {
-            token copy= *this;
+            token copy = *this;
             operator++();
             return copy;
         }
         bool operator!=(const token& rhs) const
         {
-            return i!=rhs.i;
+            return i != rhs.i;
         }
     };
     tokenize(const std::string& str, char sep)
@@ -804,9 +819,9 @@ void usage()
     print("   -S NAME  search algorithm: regex, std, stdbm, stdbmh, boostbm, boostbmh, boostkmp\n");
     print("   -Q       use posix::read, instead of posix::mmap\n");
 }
-int main(int argc, char**argv)
+int main(int argc, char** argv)
 {
-    bool recurse_dirs= false;
+    bool recurse_dirs = false;
     std::vector<std::string> args;
     findstr  f;
     std::string excludepaths;
@@ -814,16 +829,16 @@ int main(int argc, char**argv)
     for (auto& arg : ArgParser(argc, argv))
         switch (arg.option())
         {
-            case 'w': f.matchword= true; break;
-            case 'b': f.matchbinary= true; break;
-            case 'I': f.matchcase= true; break;
-            case 'x': f.pattern_is_hex= true; break;
-            case 'g': f.pattern_is_guid= true; break;
-            case 'v': f.verbose= true; break;
-            case 'r': recurse_dirs= true; break;
-            case 'l': f.list_only= true; break;
-            case 'c': f.count_only= true; break;
-            case 'f': f.readcontinuous= true; break;
+            case 'w': f.matchword = true; break;
+            case 'b': f.matchbinary = true; break;
+            case 'I': f.matchcase = true; break;
+            case 'x': f.pattern_is_hex = true; break;
+            case 'g': f.pattern_is_guid = true; break;
+            case 'v': f.verbose = true; break;
+            case 'r': recurse_dirs = true; break;
+            case 'l': f.list_only = true; break;
+            case 'c': f.count_only = true; break;
+            case 'f': f.readcontinuous = true; break;
             case 'M': f.maxfilesize = arg.getint(); break;
             case 'X': excludepaths = arg.getstr(); break;
             case 'S': 
@@ -844,7 +859,7 @@ int main(int argc, char**argv)
                       break;
             case -1:
                 if (f.pattern.empty()) 
-                    f.pattern= arg.getstr();
+                    f.pattern = arg.getstr();
                 else {
                     args.push_back(arg.getstr());
                 }
@@ -871,15 +886,15 @@ int main(int argc, char**argv)
     if (!f.compile_pattern())
         return 1;
 
-    for (auto const&arg : args) {
+    for (auto const& arg : args) {
         if (arg == "-")
             f.searchstdin();
         else {
             struct stat st;
-            if (-1==stat(arg.c_str(), &st))
+            if (-1 == stat(arg.c_str(), &st))
                 continue;
 
-            if ((st.st_mode&S_IFMT) == S_IFDIR) {
+            if (S_ISDIR(st.st_mode)) {
                 if (recurse_dirs)
                     for (auto fn : fileenumerator(arg))
                         catchall(f.searchfile(fn), fn);
