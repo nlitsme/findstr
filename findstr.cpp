@@ -37,11 +37,6 @@
 using namespace std::string_literals;
 
 
-//#include <boost/format.hpp>
-//#define FORMATTER boost::format
-
-//#include "FileFunctions.h"
-//#include "stringutils.h"
 #include "argparse.h"
 #include "formatter.h"
 #include "stringlibrary.h"
@@ -64,7 +59,16 @@ using namespace std::string_literals;
         print("EXCEPTION in %s\n", arg); \
     }
 
-// TODO: move text pattern handling to a seperate class, like the hexpattern code.
+//
+// TODO: add option to specify what is printed for matches:
+//       - only offset
+//       - the offset and the matching data.
+//       - the 'record' containing the match,
+//           where 'record' can be a CR/LF terminated line,
+//           or a 'CSV' record, or a NUL terminated item.
+//           or a fixed sized block of data.
+//
+typedef std::pair<std::vector<uint8_t>,std::vector<uint8_t>> ByteMaskType;
 
 /*
  *  class which defines how hex-patterns are handled:
@@ -107,7 +111,7 @@ public:
      *  other chunks by one or more spaces.
      *
      */
-    auto decodechunk(const std::string& chunk)
+    ByteMaskType decodechunk(const std::string& chunk)
     {
         std::vector<uint8_t> data;  uint8_t datavalue = 0;
         std::vector<uint8_t> mask;  uint8_t maskvalue = 0;
@@ -145,19 +149,13 @@ public:
         }
         return std::make_pair(data, mask);
     }
-
-    /*
-     *  decodes the hex pattern into a pair of 'data' and 'mask'
-     *  where 'mask' indicates the wildcards.
-     */
-    auto getbytemasks()
+    auto getchunks()
     {
         auto validdigit = [](char c){ return c == '?' || isxdigit(c); };
         auto invaliddigit = [&](char c){ return !validdigit(c); };
 
         // determine pattern word size, and split into chunks.
         std::vector<std::string> chunks;
-        std::set<int> sizes;
         auto i = pattern.c_str();
         auto last = pattern.c_str() + pattern.size();
         while (i != last) {
@@ -166,18 +164,29 @@ public:
                 break;
             i = std::find_if(j, last, invaliddigit);
             chunks.emplace_back(j,i);
-            sizes.insert(i - j);
         }
 
-        std::vector<uint8_t> data;
-        std::vector<uint8_t> mask;
+        return chunks;
+    }
 
-
+    /*
+     *  decodes the hex pattern into a pair of 'data' and 'mask'
+     *  where 'mask' indicates the wildcards.
+     */
+    ByteMaskType getbytemask()
+    {
         // do a byteswap when the entire pattern consists of 16, 32, 64 or 128 bit chunks.
         std::set<int> oksizes = { 4, 8, 16, 32 };
 
+        auto chunks = getchunks();
+        std::set<int> sizes;
+        for (auto& c : chunks)
+            sizes.insert(c.size());
+
         bool endianconvert = (sizes.size() == 1) && (oksizes.find(*sizes.begin()) != oksizes.end());
 
+        std::vector<uint8_t> data;
+        std::vector<uint8_t> mask;
         for (auto & chunk : chunks) {
             auto binary = decodechunk(chunk);
             if (endianconvert) {
@@ -192,30 +201,67 @@ public:
 
         return std::make_pair(data, mask);
     }
+    ByteMaskType getguidmask()
+    {
+        auto chunks = getchunks();
+        if (chunks.size() != 5)
+            throw "not a guid";
+
+        std::vector<uint8_t> data;
+        std::vector<uint8_t> mask;
+
+        // wwwwwwww-xxxx-xxxx-bbbb-bbbbbbbbbbbb
+        std::vector<bool> endiancv = { true, true, true, false, false };
+
+        for (int i = 0 ; i < 5 ; i++) {
+            auto& chunk = chunks[i];
+            bool cv = endiancv[i];
+
+            auto binary = decodechunk(chunk);
+            if (cv) {
+                data.insert(data.end(), binary.first.rbegin(), binary.first.rend());
+                mask.insert(mask.end(), binary.second.rbegin(), binary.second.rend());
+            }
+            else {
+                data.insert(data.end(), binary.first.begin(), binary.first.end());
+                mask.insert(mask.end(), binary.second.begin(), binary.second.end());
+            }
+        }
+        return std::make_pair(data, mask);
+    }
 
     /*
      *  converts the hex pattern to a regular expression.
      */
     std::string getregex()
     {
-        auto datamask = getbytemasks();
+        return datamask2regex(getbytemask());
+    }
+    std::string guidregex()
+    {
+        return datamask2regex(getguidmask());
+    }
+    std::string datamask2regex(const ByteMaskType & datamask)
+    {
+        auto & data = datamask.first;
+        auto & mask = datamask.second;
 
         std::string regex;
-        for (int i = 0 ; i < datamask.first.size() ; i++)
+        for (int i = 0 ; i < data.size() ; i++)
         {
-            switch(datamask.second[i])
+            switch(mask[i])
             {
                 case 0: regex += "."; break;
-                case 0xF0: regex += stringformat("[\\x%02x-\\x%02x]", datamask.first[i] & 0xF0, (datamask.first[i] & 0xF0) | 0x0F); break;
+                case 0xF0: regex += stringformat("[\\x%02x-\\x%02x]", data[i] & 0xF0, (data[i] & 0xF0) | 0x0F); break;
                 case 0x0F:
                            {
                                regex += "[";
                                for (int c = 0 ; c < 0x100 ; c += 0x10)
-                                   regex += stringformat("\\x%02x", c + (datamask.first[i] & 0x0F));
+                                   regex += stringformat("\\x%02x", c + (data[i] & 0x0F));
                                regex += "]";
                            }
                            break;
-                case 0xFF: regex += stringformat("\\x%02x", datamask.first[i]); break;
+                case 0xFF: regex += stringformat("\\x%02x", data[i]); break;
             }
         }
 
@@ -283,7 +329,6 @@ public:
     }
 };
 
-typedef std::pair<std::vector<uint8_t>,std::vector<uint8_t>> ByteMaskType;
 
 /*
  *  plain stringsearch, ignoring wildcards.
@@ -315,7 +360,8 @@ public:
                 auto f = std::search(p, last, searcher);
                 if (f == last)
                     break;
-                cb((const char*)f, (const char*)f + size);
+                if (!cb((const char*)f, (const char*)f + size))
+                    return NULL;
                 p = f + 1;
             }
         }
@@ -344,7 +390,7 @@ struct findstr {
     bool matchcase = false;      // modifies pattern
     bool pattern_is_hex = false; // modifies verbose output, implies binary
     bool pattern_is_guid = false;// modifies verbose output, implies binary
-    bool verbose = false;        // modifies ouput
+    int verbose = 0;             // modifies ouput
     bool list_only = false;      // modifies ouput
     bool count_only = false;     // modifies ouput
     bool readcontinuous = false; // read until ctrl-c, instead of until eof
@@ -408,6 +454,8 @@ struct findstr {
             partial = searcher->search(bufstart, readend, [&origin, bufstart, offset, this](const char *first, const char *last)->bool {
                 return writeresult(origin, bufstart, offset, first, last);
             });
+            if (partial==NULL)  // writeresult told searcher to stop
+                break;
 
             // avoid too large partial matches
             if (partial - bufstart < (int)buf.size()/2)
@@ -433,7 +481,7 @@ struct findstr {
     void searchfile(const std::string& fn)
     {
         filehandle f = open(fn.c_str(), O_RDONLY);
-        searchhandle(f, stringformat("file:%s", fn));
+        searchhandle(f, fn);
     }
 
     void searchhandle(filehandle& f, const std::string& origin)
@@ -520,6 +568,26 @@ struct findstr {
 
     bool compile_pattern()
     {
+        // TODO:
+        //   - if pattern_is_guid
+        //      ... guid_translator  -> replaces XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXX...  with \\xXX...\\xXX
+        //   - if pattern_is_hex
+        //      ... hex_translator   
+        //            -- replaces XX with \\xXX,  
+        //                        X.  with [\\xX0-\\xXF]
+        //                        .X  with [\\x0X..\\xFX]
+        //                        ..  with .
+        //            -- does bytes swap on XXXX, XXXXXXXX, etc.
+        //   - if 'is simple expr'  :   string [ '|' string ]*
+        //                             ;  string = [ char | . ]
+        //            -> decode to bytemask
+        //
+        //   - otherwise  'regex'
+        //
+        //
+        // if 'need unicode' -> append unicode patterns.
+        //
+
         if (pattern_is_hex) {
             return compile_hex_pattern();
         }
@@ -616,7 +684,7 @@ struct findstr {
         }
         else {
             for (auto & hp : patternlist)
-                bytemasks.push_back(hp.getbytemasks());
+                bytemasks.push_back(hp.getbytemask());
         }
         return true;
     }
@@ -642,48 +710,31 @@ struct findstr {
 
     bool compile_guid_pattern()
     {
-        std::vector<uint8_t> guid(16);
-        // wwwwwwww-xxxx-xxxx-bbbb-bbbbbbbbbbbb
-        
-        int i = 0;
-        auto p = &pattern[0];
-        auto pend = p + pattern.size();
-        while (p < pend) {
-            switch(i) {
-                case 0:
-                    {
-                    auto q = p;
-                    uint32_t l1 = strtoul(p, &q, 16);
-                    if (*q != '-')
-                        return false;
-                    q++;
-                    unchecked::set32le(&guid[i], l1);
-                    i += 4;
-                    }
-                    break;
-                case 4:
-                case 6:
-                    {
-                    auto q = p;
-                    uint16_t w = strtoul(p, &q, 16);
-                    if (*q != '-')
-                        return false;
-                    q++;
-                    unchecked::set32le(&guid[i], w);
-                    i += 2;
-                    }
-                    break;
-                default:
-                    {
-                    size_t n = hex2binary(p, pend, &guid[i], &guid[0] + 16);
-                    if (n != 8)
-                        return false;
-                    p = pend;
-                    i += n;
-                    }
+        // format:  <guidpattern> [ "|" <guidpattern> ... ]
+        std::vector<hexpattern> patternlist;
+
+        auto i = pattern.c_str();
+        auto last = pattern.c_str() + pattern.size();
+        while (i != last)
+        {
+            auto j = std::find(i, last, '|');
+            patternlist.emplace_back(i, j);
+            i = (j == last) ? j : j + 1;
+        }
+
+        if (searchtype == REGEX_SEARCH) {
+            pattern.clear();
+            for (auto & hp : patternlist)
+            {
+                if (!pattern.empty())
+                    pattern += "|";
+                pattern += hp.guidregex();
             }
         }
-        // TODO ... not complete yet, need to translate 'guid' into a bytemask or pattern.
+        else {
+            for (auto & hp : patternlist)
+                bytemasks.push_back(hp.getguidmask());
+        }
         return true;
     }
     std::string make_unicode_pattern(std::string& apat, int size)
@@ -834,7 +885,7 @@ int main(int argc, char** argv)
             case 'I': f.matchcase = true; break;
             case 'x': f.pattern_is_hex = true; break;
             case 'g': f.pattern_is_guid = true; break;
-            case 'v': f.verbose = true; break;
+            case 'v': f.verbose += arg.count(); break;
             case 'r': recurse_dirs = true; break;
             case 'l': f.list_only = true; break;
             case 'c': f.count_only = true; break;
@@ -885,6 +936,13 @@ int main(int argc, char** argv)
         args.push_back("-");
     if (!f.compile_pattern())
         return 1;
+    if (f.verbose > 1) {
+        print("Compiled regex: %s\n", f.pattern);
+        for (auto & bm : f.bytemasks) {
+            print("Compiled bytes: %-b\n", bm.first);
+            print("Compiled  mask: %-b\n", bm.second);
+        }
+    }
 
     for (auto const& arg : args) {
         if (arg == "-")
