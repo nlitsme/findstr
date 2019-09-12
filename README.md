@@ -2,6 +2,7 @@ findstr
 =======
 
 A tool for searching text or byte patterns in binary files.
+Like `grep` for binaries.
 
  * searches for byte patterns
  * support regular expressions
