@@ -1,7 +1,7 @@
 /*
  * A tool for searching patterns, text, or hex in binaries.
  *
- * Author: (C) 2004-2019  Willem Hengeveld
+ * Author: (C) 2004-2019  Willem Hengeveld <itsme@xs4all.nl>
  */
 
 
@@ -341,6 +341,8 @@ public:
     {
         for (auto& hp : bytemasks) {
             auto & data = hp.first;
+
+            // TODO: check that hp.second == r'\xff+'
             patterns.emplace_back(data.size(), SEARCH{(const char*)&data.front(), (const char*)&data.front() + data.size()});
         }
     }
