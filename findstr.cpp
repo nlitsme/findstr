@@ -68,7 +68,8 @@ using namespace std::string_literals;
 //           or a 'CSV' record, or a NUL terminated item.
 //           or a fixed sized block of data.
 //
-typedef std::pair<std::vector<uint8_t>,std::vector<uint8_t>> ByteMaskType;
+typedef std::vector<uint8_t> ByteVector;
+typedef std::pair<ByteVector,ByteVector> ByteMaskType;
 
 /*
  *  class which defines how hex-patterns are handled:
@@ -113,8 +114,8 @@ public:
      */
     ByteMaskType decodechunk(const std::string& chunk)
     {
-        std::vector<uint8_t> data;  uint8_t datavalue = 0;
-        std::vector<uint8_t> mask;  uint8_t maskvalue = 0;
+        ByteVector data;  uint8_t datavalue = 0;
+        ByteVector mask;  uint8_t maskvalue = 0;
 
         bool hi = true;
         for (auto c : chunk)
@@ -185,8 +186,8 @@ public:
 
         bool endianconvert = (sizes.size() == 1) && (oksizes.find(*sizes.begin()) != oksizes.end());
 
-        std::vector<uint8_t> data;
-        std::vector<uint8_t> mask;
+        ByteVector data;
+        ByteVector mask;
         for (auto & chunk : chunks) {
             auto binary = decodechunk(chunk);
             if (endianconvert) {
@@ -207,8 +208,8 @@ public:
         if (chunks.size() != 5)
             throw "not a guid";
 
-        std::vector<uint8_t> data;
-        std::vector<uint8_t> mask;
+        ByteVector data;
+        ByteVector mask;
 
         // wwwwwwww-xxxx-xxxx-bbbb-bbbbbbbbbbbb
         std::vector<bool> endiancv = { true, true, true, false, false };
@@ -283,7 +284,7 @@ class regexsearcher : public SearchBase {
     const BASIC_REGEX<char> re;
 public:
     regexsearcher(const std::string& pattern, bool matchcase)
-        : re(pattern.c_str(), pattern.c_str() + pattern.size(), matchcase ? REGEX_CONST::nosubs : REGEX_CONST::nosubs | REGEX_CONST::icase)
+        : re(pattern.c_str(), pattern.c_str() + pattern.size(), REGEX_CONST::nosubs | (matchcase ? 0 :  REGEX_CONST::icase))
     {
 
     }
@@ -337,12 +338,21 @@ template<typename SEARCH>
 class stringsearch : public SearchBase {
     std::vector<std::tuple<size_t, SEARCH>> patterns;
 public:
+    static bool is_full_mask(const ByteVector& mask)
+    {
+        return std::find_if(mask.begin(), mask.end(), [](auto b) { return b != 0xFF; }) == mask.end();
+    }
     stringsearch(const std::vector<ByteMaskType> & bytemasks)
     {
+        bool mask_warning = false;
         for (auto& hp : bytemasks) {
             auto & data = hp.first;
 
-            // TODO: check that hp.second == r'\xff+'
+            if (!is_full_mask(hp.second) && !mask_warning) {
+                print("WARNING: ignoring bytemask\n");
+                mask_warning = true;
+            }
+
             patterns.emplace_back(data.size(), SEARCH{(const char*)&data.front(), (const char*)&data.front() + data.size()});
         }
     }
@@ -370,6 +380,73 @@ public:
         return last;
     }
 };
+
+/*
+ * byte mask search
+ */
+class masksearch : public SearchBase {
+    std::vector<ByteMaskType> patterns;
+public:
+    masksearch(const std::vector<ByteMaskType> & bytemasks)
+        : patterns(bytemasks)
+    {
+        for (auto & bm : patterns)
+            if (bm.first.size() != bm.second.size())
+                print("WARNING: size mismatch between pattern and bytemask\n");
+
+        // todo: maybe i can optimize this by splitting the patterns in 'full' and 'partial' sequences.
+        //    where 'full' is a sequence of bytes which has mask == 0xff
+    }
+    const char *maskedsearch(const char *first, const char *last, ByteMaskType& bm)
+    {
+        auto p = first;
+
+        auto p0 = p;
+
+        // bytes
+        auto b = &bm.first[0];
+        auto bend = b + bm.first.size();
+
+        // mask 
+        auto m = &bm.second[0];
+
+        while (p != last)
+        {
+            if (((*p ^ *b)&(*m)) == 0) {
+                p0 = p;
+                ++b; ++m;
+                if (b==bend)
+                    return p - bm.first.size();
+            }
+            else {
+                b = &bm.first[0];
+            }
+        }
+        return last;
+    }
+
+    /*
+     *  do a bytemask search.
+     */
+    const char *search(const char *first, const char *last, CallbackType cb)
+    {
+        for (auto& bm : patterns)
+        {
+            auto size = bm.first.size();
+
+            auto p = first;
+            while (p != last) {
+                auto f = maskedsearch(p, last, bm);
+                if (f == last)
+                    break;
+                if (!cb((const char*)f, (const char*)f + size))
+                    return NULL;
+                p = f + 1;
+            }
+        }
+        return last;
+    }
+};
 /*
  * The various search algoritms implemented in findstr.
  */
@@ -381,8 +458,7 @@ enum SearchType {
     BOOST_BOYER_MOORE,
     BOOST_BOYER_MOORE_HORSPOOL,
     BOOST_KNUTH_MORRIS_PRATT,
-
-    // TODO: add bytemask search
+    BYTEMASK_SEARCH,
 };
 
 
@@ -390,6 +466,7 @@ struct findstr {
     bool matchword = false;      // modifies pattern
     bool matchbinary = false;    // modifies pattern, modifies verbose output
     bool matchcase = false;      // modifies pattern
+    bool matchstart = false;      // modifies pattern
     bool pattern_is_hex = false; // modifies verbose output, implies binary
     bool pattern_is_guid = false;// modifies verbose output, implies binary
     int verbose = 0;             // modifies ouput
@@ -457,6 +534,8 @@ struct findstr {
                 return writeresult(origin, bufstart, offset, first, last);
             });
             if (partial==NULL)  // writeresult told searcher to stop
+                break;
+            if (matchstart)
                 break;
 
             // avoid too large partial matches
@@ -565,6 +644,9 @@ struct findstr {
             print("%08x", offset + first - bufstart);
             nameprinted = true;
         }
+        if (matchstart) {
+            return false;
+        }
         return true;
     }
 
@@ -613,8 +695,8 @@ struct findstr {
     }
     ByteMaskType make_unicode_bytemask(const ByteMaskType& bm, int size)
     {
-        std::vector<uint8_t> data;
-        std::vector<uint8_t> mask;
+        ByteVector data;
+        ByteVector mask;
         for (int i = 0 ; i < bm.first.size() ; i++)
         {
             data.push_back(bm.first[i]);
@@ -647,14 +729,14 @@ struct findstr {
         }
 
         for (auto & txt : patternlist) {
-            std::vector<uint8_t> data = converttext(txt);
-            std::vector<uint8_t> mask(data.size(), 0xff);
+            ByteVector data = converttext(txt);
+            ByteVector mask(data.size(), 0xff);
             bytemasks.emplace_back(data, mask);
         }
     }
-    std::vector<uint8_t> converttext(const std::string& txt)
+    ByteVector converttext(const std::string& txt)
     {
-        return std::vector<uint8_t>((const uint8_t*)&txt.front(), (const uint8_t*)&txt.front() + txt.size());
+        return ByteVector((const uint8_t*)&txt.front(), (const uint8_t*)&txt.front() + txt.size());
     }
 
     bool compile_hex_pattern()
@@ -707,6 +789,8 @@ struct findstr {
             return std::make_shared<stringsearch<boost::algorithm::boyer_moore_horspool<const char*>>>(bytemasks);
         case BOOST_KNUTH_MORRIS_PRATT:
             return std::make_shared<stringsearch<boost::algorithm::knuth_morris_pratt<const char*>>>(bytemasks);
+        case BYTEMASK_SEARCH:
+            return std::make_shared<masksearch>(bytemasks);
         }
     }
 
@@ -864,6 +948,7 @@ void usage()
     print("   -g       pattern is a guid\n");
     print("   -v       verbose\n");
     print("   -r       recurse\n");
+    print("   -0       only match to start of file\n");
     print("   -l       list matching files\n");
     print("   -c       count number of matches per file\n");
     print("   -f       follow, keep checking file for new data\n");
@@ -885,6 +970,7 @@ int main(int argc, char** argv)
             case 'w': f.matchword = true; break;
             case 'b': f.matchbinary = true; break;
             case 'I': f.matchcase = true; break;
+            case '0': f.matchstart = true; break;
             case 'x': f.pattern_is_hex = true; break;
             case 'g': f.pattern_is_guid = true; break;
             case 'v': f.verbose += arg.count(); break;
@@ -904,6 +990,7 @@ int main(int argc, char** argv)
                       else if (mode == "boostbm"s) f.searchtype = BOOST_BOYER_MOORE;
                       else if (mode == "boostbmh"s) f.searchtype = BOOST_BOYER_MOORE_HORSPOOL;
                       else if (mode == "boostkmp"s) f.searchtype = BOOST_KNUTH_MORRIS_PRATT;
+                      else if (mode == "mask"s) f.searchtype = BYTEMASK_SEARCH;
                       }
                       break;
             case 'Q': f.use_sequential = true; break;
