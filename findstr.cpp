@@ -980,6 +980,11 @@ void usage()
     //print("   -X LIST   exclude paths\n");
     print("   -S NAME  search algorithm: regex, std, stdbm, stdbmh, boostbm, boostbmh, boostkmp\n");
     print("   -Q       use posix::read, instead of posix::mmap\n");
+#ifdef WITH_MEMSEARCH
+    print("   -o OFS   memory offset to start searching\n");
+    print("   -L SIZE  size of memory block to search through\n");
+    print("   -h PID   which process to search\n");
+#endif
 }
 int main(int argc, char** argv)
 {
@@ -1003,7 +1008,7 @@ int main(int argc, char** argv)
             case 'c': f.count_only = true; break;
             case 'f': f.readcontinuous = true; break;
             case 'M': f.maxfilesize = arg.getint(); break;
-            case 'X': excludepaths = arg.getstr(); break;
+            //case 'X': excludepaths = arg.getstr(); break;
 #ifdef WITH_MEMSEARCH
             case 'o': f.memoffset = arg.getint(); break;
             case 'L': f.memsize = arg.getint(); break;
@@ -1046,9 +1051,9 @@ int main(int argc, char** argv)
         f.matchbinary = true;
         f.matchcase = true;
     }
-    std::set<std::string> exclude;
-    for (auto i : tokenize(excludepaths, ':'))
-        exclude.insert(i);
+    //std::set<std::string> exclude;
+    //for (auto i : tokenize(excludepaths, ':'))
+    //    exclude.insert(i);
 
 #ifdef WITH_MEMSEARCH
     if (!f.memoffset)

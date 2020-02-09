@@ -10,6 +10,9 @@ Like `grep` for binaries.
  * searches for unicode patterns. Finds UTF-16 and UTF-32 encoded strings.
  * wildcards can be specified in byte strings.
  * searches little endian words patterns
+ * added -0 option, to only match the start of the file.
+ * added '-S mask', which searches for a byte-mask pattern.
+ * (OSX only) added -o, -L, -h to search in memory of the specified process.
 
 
 USAGE
