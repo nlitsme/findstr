@@ -48,6 +48,10 @@ using namespace std::string_literals;
 #include <set>
 #include <fcntl.h>
 
+#ifdef WITH_MEMSEARCH
+#include "machmemory.h"
+#endif
+
 #define catchall(call, arg) \
     try { \
         call; \
@@ -477,11 +481,31 @@ struct findstr {
     uint64_t maxfilesize = 0;
     bool nameprinted = false;
     int matchcount = 0;
+
+#ifdef WITH_MEMSEARCH
+    int pid;
+    uint64_t memoffset;
+    uint64_t memsize;
+#endif
+
     SearchType searchtype = REGEX_SEARCH;
 
     std::string pattern;
     std::vector<ByteMaskType> bytemasks;
 
+#ifdef WITH_MEMSEARCH
+    void searchmemory()
+    {
+        task_t task = MachOpenProcessByPid(pid);
+        auto searcher = makesearcher();
+
+        MachVirtualMemory mem(task, memoffset, memsize);
+
+        searcher->search((const char*)mem.begin(), (const char*)mem.end(), [&mem, this](const char *first, const char *last)->bool {
+            return writeresult("memory", (const char*)mem.begin(), memoffset, first, last);
+        });
+    }
+#endif
 
     void searchstdin()
     {
@@ -980,6 +1004,11 @@ int main(int argc, char** argv)
             case 'f': f.readcontinuous = true; break;
             case 'M': f.maxfilesize = arg.getint(); break;
             case 'X': excludepaths = arg.getstr(); break;
+#ifdef WITH_MEMSEARCH
+            case 'o': f.memoffset = arg.getint(); break;
+            case 'L': f.memsize = arg.getint(); break;
+            case 'h': f.pid = arg.getint(); break;
+#endif
             case 'S': 
                       {
                       auto mode = arg.getstr();
@@ -1021,6 +1050,9 @@ int main(int argc, char** argv)
     for (auto i : tokenize(excludepaths, ':'))
         exclude.insert(i);
 
+#ifdef WITH_MEMSEARCH
+    if (!f.memoffset)
+#endif
     if (args.empty())
         args.push_back("-");
     if (!f.compile_pattern())
@@ -1032,6 +1064,10 @@ int main(int argc, char** argv)
             print("Compiled  mask: %-b\n", bm.second);
         }
     }
+#ifdef WITH_MEMSEARCH
+    if (f.memoffset)
+        f.searchmemory();
+#endif
 
     for (auto const& arg : args) {
         if (arg == "-")
@@ -1043,7 +1079,7 @@ int main(int argc, char** argv)
 
             if (S_ISDIR(st.st_mode)) {
                 if (recurse_dirs)
-                    for (auto fn : fileenumerator(arg))
+                    for (auto [fn, ent] : fileenumerator(arg))
                         catchall(f.searchfile(fn), fn);
             }
             //      [recurse_dirs,&exclude](const std::string& fn)->bool { 
