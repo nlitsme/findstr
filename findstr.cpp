@@ -31,7 +31,7 @@
 #include <boost/algorithm/searching/boyer_moore.hpp>
 #include <boost/algorithm/searching/boyer_moore_horspool.hpp>
 
-
+// NOTE: in gcc this is not experimental, for clang it is.
 #include <experimental/functional>
 
 using namespace std::string_literals;
@@ -252,7 +252,7 @@ public:
         auto & mask = datamask.second;
 
         std::string regex;
-        for (int i = 0 ; i < data.size() ; i++)
+        for (unsigned i = 0 ; i < data.size() ; i++)
         {
             switch(mask[i])
             {
@@ -405,8 +405,6 @@ public:
     {
         auto p = first;
 
-        auto p0 = p;
-
         // bytes
         auto b = &bm.first[0];
         auto bend = b + bm.first.size();
@@ -417,7 +415,6 @@ public:
         while (p != last)
         {
             if (((*p ^ *b)&(*m)) == 0) {
-                p0 = p;
                 ++b; ++m;
                 if (b==bend)
                     return p - bm.first.size();
@@ -483,9 +480,9 @@ struct findstr {
     int matchcount = 0;
 
 #ifdef WITH_MEMSEARCH
-    int pid;
-    uint64_t memoffset;
-    uint64_t memsize;
+    int pid = 0;
+    uint64_t memoffset = 0;
+    uint64_t memsize = 0;
 #endif
 
     SearchType searchtype = REGEX_SEARCH;
@@ -721,7 +718,7 @@ struct findstr {
     {
         ByteVector data;
         ByteVector mask;
-        for (int i = 0 ; i < bm.first.size() ; i++)
+        for (unsigned i = 0 ; i < bm.first.size() ; i++)
         {
             data.push_back(bm.first[i]);
             data.push_back(0);
@@ -816,6 +813,7 @@ struct findstr {
         case BYTEMASK_SEARCH:
             return std::make_shared<masksearch>(bytemasks);
         }
+        throw std::runtime_error("unknown searchtype");
     }
 
     bool compile_guid_pattern()
@@ -1071,7 +1069,7 @@ int main(int argc, char** argv)
     }
 #ifdef WITH_MEMSEARCH
     if (f.memoffset)
-        f.searchmemory();
+        catchall(f.searchmemory(), "memory");
 #endif
 
     for (auto const& arg : args) {
