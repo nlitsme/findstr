@@ -1,7 +1,10 @@
 dirname=$(dir $(patsubst %/,%,$1))
 
-boostasiohpp=$(firstword $(wildcard $(addsuffix /include/boost/asio.hpp,/usr/local /opt/local $(wildcard /usr/local/opt/boost*) /usr $(wildcard c:/local/boost*))))
+boostasiohpp=$(firstword $(wildcard $(addsuffix /include/boost/asio.hpp,/usr/local /opt/local $(wildcard /usr/local/opt/boost*) /usr)))
 BOOSTDIR=$(call dirname,$(call dirname,$(call dirname,$(boostasiohpp))))
+BOOSTINC=$(firstword $(wildcard $(BOOSTDIR)/include $(BOOSTDIR)))
+
+# note: on windows: pass CXX=cl and BOOSTDIR=c:/local/boost_1_xx_y  on the make commandline
 
 cpputilssplit=$(firstword $(wildcard $(addsuffix /string-split.h, cpputils submodules/cpputils ../cpputils ../../cpputils)))
 CPPUTILSDIR=$(call dirname,$(cpputilssplit))
@@ -21,7 +24,7 @@ findstr: findstr.o $(if $(filter $(OSTYPE),Darwin),machmemory.o)
 
 %: %.o
 	$(CXX) -g -o $@ $^ -O3 -L$(BOOSTDIR)/lib $(LDFLAGS)
-INCS=-I $(CPPUTILSDIR) -I $(HEXDUMPERDIR) -I $(BOOSTDIR)/include
+INCS=-I $(CPPUTILSDIR) -I $(HEXDUMPERDIR) -I $(BOOSTINC)
 
 CFLAGS+=-Wall -std=c++17 -g $(if $(D),-O0,-O3)
 CFLAGS+=-DUSE_BOOST_REGEX
