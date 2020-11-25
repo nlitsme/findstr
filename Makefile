@@ -1,7 +1,7 @@
 dirname=$(dir $(patsubst %/,%,$1))
 
-boostasiohpp=$(firstword $(wildcard $(addsuffix /boost/asio.hpp,/usr/local /opt/local $(wildcard /usr/local/opt/boost*) /usr $(wildcard c:/local/boost*))))
-BOOSTDIR=$(call dirname,$(call dirname,$(boostasiohpp)))
+boostasiohpp=$(firstword $(wildcard $(addsuffix /include/boost/asio.hpp,/usr/local /opt/local $(wildcard /usr/local/opt/boost*) /usr $(wildcard c:/local/boost*))))
+BOOSTDIR=$(call dirname,$(call dirname,$(call dirname,$(boostasiohpp))))
 
 cpputilssplit=$(firstword $(wildcard $(addsuffix /string-split.h, cpputils submodules/cpputils ../cpputils ../../cpputils)))
 CPPUTILSDIR=$(call dirname,$(cpputilssplit))
