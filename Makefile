@@ -1,6 +1,13 @@
-boostasiohpp=$(firstword $(wildcard $(addsuffix /boost/asio.hpp,/usr/local /opt/local $(wildcard /usr/local/opt/boost*) /usr $(wildcard c:/local/boost*))))
 dirname=$(dir $(patsubst %/,%,$1))
+
+boostasiohpp=$(firstword $(wildcard $(addsuffix /boost/asio.hpp,/usr/local /opt/local $(wildcard /usr/local/opt/boost*) /usr $(wildcard c:/local/boost*))))
 BOOSTDIR=$(call dirname,$(call dirname,$(boostasiohpp)))
+
+cpputilssplit=$(firstword $(wildcard $(addsuffix /string-split.h, cpputils submodules/cpputils ../cpputils ../../cpputils)))
+CPPUTILSDIR=$(call dirname,$(cpputilssplit))
+
+hdmachmemory=$(firstword $(wildcard $(addsuffix /machmemory.h, hexdumper submodules/hexdumper ../hexdumper ../../hexdumper)))
+HEXDUMPERDIR=$(call dirname,$(hdmachmemory))
 
 
 ifneq ($(wildcard /System/Library/Extensions),)
@@ -14,8 +21,8 @@ findstr: findstr.o $(if $(filter $(OSTYPE),Darwin),machmemory.o)
 
 %: %.o
 	$(CXX) -g -o $@ $^ -O3 -L$(BOOSTDIR)/lib $(LDFLAGS)
-hexdumper_src=../../hexdumper
-INCS=-I ../../cpputils -I $(hexdumper_src) -I $(BOOSTDIR)/include
+INCS=-I $(CPPUTILSDIR) -I $(HEXDUMPERDIR) -I $(BOOSTDIR)/include
+
 CFLAGS+=-Wall -std=c++17 -g $(if $(D),-O0,-O3)
 CFLAGS+=-DUSE_BOOST_REGEX
 #CFLAGS+=-DUSE_STD_REGEX
@@ -23,7 +30,7 @@ CFLAGS+=-DUSE_BOOST_REGEX
 
 %.o: %.cpp
 	$(CXX) $(CFLAGS) -c -o $@ $^ $(INCS)
-%.o: $(hexdumper_src)/%.cpp
+%.o: $(HEXDUMPERDIR)/%.cpp
 	$(CXX) $(CFLAGS) -c -o $@ $^ $(INCS)
 
 clean:
