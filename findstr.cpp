@@ -27,12 +27,14 @@
 #define PARTIALARG
 #endif
 
+#ifdef USE_BOOST_REGEX
 #include <boost/algorithm/searching/knuth_morris_pratt.hpp>
 #include <boost/algorithm/searching/boyer_moore.hpp>
 #include <boost/algorithm/searching/boyer_moore_horspool.hpp>
+#endif
 
 // NOTE: in gcc this is not experimental, for clang it is.
-#include <experimental/functional>
+#include <functional>
 
 using namespace std::string_literals;
 
@@ -288,7 +290,9 @@ class regexsearcher : public SearchBase {
     const BASIC_REGEX<char> re;
 public:
     regexsearcher(const std::string& pattern, bool matchcase)
-        : re(pattern.c_str(), pattern.c_str() + pattern.size(), REGEX_CONST::nosubs | (matchcase ? 0 :  REGEX_CONST::icase))
+        : re(pattern.c_str(), pattern.c_str() + pattern.size(),
+                BASIC_REGEX<char>::flag_type(REGEX_CONST::nosubs | (matchcase ? 0 :  REGEX_CONST::icase)))
+
     {
 
     }
@@ -799,17 +803,19 @@ struct findstr {
         case REGEX_SEARCH:
             return std::make_shared<regexsearcher>(pattern, matchcase);
         case STD_SEARCH:
-            return std::make_shared<stringsearch<std::experimental::default_searcher<const char*>>>(bytemasks);
+            return std::make_shared<stringsearch<std::default_searcher<const char*>>>(bytemasks);
         case STD_BOYER_MOORE:
-            return std::make_shared<stringsearch<std::experimental::boyer_moore_searcher<const char*>>>(bytemasks);
+            return std::make_shared<stringsearch<std::boyer_moore_searcher<const char*>>>(bytemasks);
         case STD_BOYER_MOORE_HORSPOOL:
-            return std::make_shared<stringsearch<std::experimental::boyer_moore_horspool_searcher<const char*>>>(bytemasks);
+            return std::make_shared<stringsearch<std::boyer_moore_horspool_searcher<const char*>>>(bytemasks);
+#ifdef USE_BOOST_REGEX
         case BOOST_BOYER_MOORE:
             return std::make_shared<stringsearch<boost::algorithm::boyer_moore<const char*>>>(bytemasks);
         case BOOST_BOYER_MOORE_HORSPOOL:
             return std::make_shared<stringsearch<boost::algorithm::boyer_moore_horspool<const char*>>>(bytemasks);
         case BOOST_KNUTH_MORRIS_PRATT:
             return std::make_shared<stringsearch<boost::algorithm::knuth_morris_pratt<const char*>>>(bytemasks);
+#endif
         case BYTEMASK_SEARCH:
             return std::make_shared<masksearch>(bytemasks);
         }
