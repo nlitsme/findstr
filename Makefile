@@ -14,19 +14,23 @@ HEXDUMPERDIR=$(call dirname,$(hdmachmemory))
 
 
 ifneq ($(wildcard /System/Library/Extensions),)
-OSTYPE=Darwin
+OSTYPE=darwin
+endif
+ifneq ($(wildcard $(SystemRoot)/explorer.exe),)
+OSTYPE=windows
 endif
 
-LDFLAGS+=$(if $(filter $(OSTYPE),Darwin),-lboost_regex-mt,-lboost_regex) 
-LDFLAGS+=$(if $(filter $(OSTYPE),Darwin),-framework Security)
+LDFLAGS+=-L/usr/local/lib -lboost_regex
+LDFLAGS+=$(if $(filter $(OSTYPE),darwin),-framework Security)
 
-findstr: findstr.o $(if $(filter $(OSTYPE),Darwin),machmemory.o)
+findstr: findstr.o $(if $(filter $(OSTYPE),darwin),machmemory.o)
 
 %: %.o
 	$(CXX) -g -o $@ $^ -O3 -L$(BOOSTDIR)/lib $(LDFLAGS)
 INCS=-I $(CPPUTILSDIR) -I $(HEXDUMPERDIR) -I $(BOOSTINC)
 
-CFLAGS+=-Wall -std=c++17 -g $(if $(D),-O0,-O3)
+CFLAGS+=-Wall -g $(if $(D),-O0,-O3)
+CFLAGS+=$(if $(filter $(OSTYPE),windows),-std:c++17,-std=c++17)
 CFLAGS+=-DUSE_BOOST_REGEX
 #CFLAGS+=-DUSE_STD_REGEX
 #CFLAGS+=-DWITH_MEMSEARCH
