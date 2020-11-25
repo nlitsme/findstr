@@ -51,6 +51,7 @@ using namespace std::string_literals;
 #include <fcntl.h>
 
 #ifdef WITH_MEMSEARCH
+// from hexdumper
 #include "machmemory.h"
 #endif
 
