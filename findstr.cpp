@@ -34,7 +34,11 @@
 #endif
 
 // NOTE: in gcc this is not experimental, for clang it is.
+#ifdef __clang__
+#include <experimental/functional>
+#else
 #include <functional>
+#endif
 
 using namespace std::string_literals;
 
