@@ -36,8 +36,10 @@
 // NOTE: in gcc this is not experimental, for clang it is.
 #ifdef __clang__
 #include <experimental/functional>
+#define SEARCHERNS std::experimental
 #else
 #include <functional>
+#define SEARCHERNS std
 #endif
 
 using namespace std::string_literals;
@@ -810,9 +812,9 @@ struct findstr {
         case STD_SEARCH:
             return std::make_shared<stringsearch<std::default_searcher<const char*>>>(bytemasks);
         case STD_BOYER_MOORE:
-            return std::make_shared<stringsearch<std::boyer_moore_searcher<const char*>>>(bytemasks);
+            return std::make_shared<stringsearch<SEARCHERNS::boyer_moore_searcher<const char*>>>(bytemasks);
         case STD_BOYER_MOORE_HORSPOOL:
-            return std::make_shared<stringsearch<std::boyer_moore_horspool_searcher<const char*>>>(bytemasks);
+            return std::make_shared<stringsearch<SEARCHERNS::boyer_moore_horspool_searcher<const char*>>>(bytemasks);
 #ifdef USE_BOOST_REGEX
         case BOOST_BOYER_MOORE:
             return std::make_shared<stringsearch<boost::algorithm::boyer_moore<const char*>>>(bytemasks);
