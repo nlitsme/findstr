@@ -34,12 +34,15 @@
 #endif
 
 // NOTE: in gcc this is not experimental, for clang it is.
-#ifdef __clang__
-#include <experimental/functional>
-#define SEARCHERNS std::experimental
-#else
+#ifdef __GLIBCXX__
+// https://gcc.gnu.org/onlinedocs/libstdc++/manual/using_macros.html
 #include <functional>
 #define SEARCHERNS std
+#endif
+
+#ifdef _LIBCPP_VERSION
+#include <experimental/functional>
+#define SEARCHERNS std::experimental
 #endif
 
 using namespace std::string_literals;
