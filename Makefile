@@ -16,7 +16,7 @@ HEXDUMPERDIR=$(call dirname,$(hdmachmemory))
 ifneq ($(wildcard /System/Library/Extensions),)
 OSTYPE=darwin
 endif
-ifneq ($(wildcard $(SystemRoot)/explorer.exe),)
+ifneq ($(wildcard $(SystemRoot)/explorer.exe $(SYSTEMROOT)/explorer.exe),)
 OSTYPE=windows
 endif
 
