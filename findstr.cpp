@@ -50,6 +50,7 @@ using namespace std::string_literals;
 
 #include "argparse.h"
 #include "formatter.h"
+#include "hexdumper.h"
 #include "stringlibrary.h"
 #include "datapacking.h"
 #include "fhandle.h"

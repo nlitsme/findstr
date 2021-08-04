@@ -25,6 +25,11 @@ LDFLAGS+=$(if $(filter $(OSTYPE),darwin),-framework Security)
 
 findstr: findstr.o $(if $(filter $(OSTYPE),darwin),machmemory.o)
 
+cmake:
+	cmake -B build . $(if $(D),-DCMAKE_BUILD_TYPE=Debug,-DCMAKE_BUILD_TYPE=Release) $(CMAKEARGS)
+	$(MAKE) -C build $(if $(V),VERBOSE=1)
+
+
 %: %.o
 	$(CXX) -g -o $@ $^ -O3 -L$(BOOSTDIR)/lib $(LDFLAGS)
 INCS=-I $(CPPUTILSDIR) -I $(HEXDUMPERDIR) -I $(BOOSTINC)
@@ -42,6 +47,7 @@ CFLAGS+=-DUSE_BOOST_REGEX
 
 clean:
 	$(RM) findstr $(wildcard *.o)
+	$(RM) -r build CMakeFiles CMakeCache.txt CMakeOutput.log
 
 installbin:
 	cp findstr ~/bin/

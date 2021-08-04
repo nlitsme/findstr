@@ -52,10 +52,27 @@ Searches for the ascii, utf-16, or utf-32 encoded string  `"test1234"`.
 Searches for the little endian DWORD:  0x12345678: the byte pattern: { 0x78, 0x56, 0x34, 0x12 }.
 
 
+BUILDING
+========
+
+## Dependencies
+
+`findstr` depends on [cpputils](hhttps://github.com/nlitsme/cpputils), [hexdumper](https://github.com/nlitsme/hexdumper) and [boost](https://boost.org/).
+
+## with `gnumake`
+
+You will need to manually install the dependencies, `boost` can be installed systemwide, while `cpputils` and `hexdumper` must be cloned into subdirectories of the `submodules` directory.
+Type: `make`  to run the gnumake build.
+
+## with `cmake`
+
+This is the preferred build method, all dependencies will be downloaded automatically.
+Type: `make cmake`  to run the cmake build.
+
+
 TODO
 ====
 
- * Support hex wildcards in string search.
  * specify what context is printed for matches:
    * the entire line.
    * a range of bytes.
