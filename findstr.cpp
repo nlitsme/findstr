@@ -363,7 +363,7 @@ public:
     }
     stringsearch(const std::vector<ByteMaskType> & bytemasks)
     {
-        bool mask_warning = false;
+        static bool mask_warning = false;
         for (auto& hp : bytemasks) {
             auto & data = hp.first;
 
