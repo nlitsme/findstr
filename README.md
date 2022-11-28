@@ -59,15 +59,15 @@ BUILDING
 
 `findstr` depends on [cpputils](hhttps://github.com/nlitsme/cpputils), [hexdumper](https://github.com/nlitsme/hexdumper) and [boost](https://boost.org/).
 
-## with `gnumake`
+## make
 
-You will need to manually install the dependencies, `boost` can be installed systemwide, while `cpputils` and `hexdumper` must be cloned into subdirectories of the `submodules` directory.
-Type: `make`  to run the gnumake build.
+The toplevel `Makefile` will invoke cmake for you, and then build.
 
-## with `cmake`
+Cmake will automatically download cpputils and hexdumper for you.
+You will need to manually install `boost`.
+Type: `make`  to run the cmake / gnumake build.
 
-This is the preferred build method, all dependencies will be downloaded automatically.
-Type: `make cmake`  to run the cmake build.
+You can avoid automatic downloads by creating symlinks for cpputils and hexdumper in the `symlinks` subdirectory.
 
 
 TODO
