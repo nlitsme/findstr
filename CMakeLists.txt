@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(findstr)
 set(CMAKE_CXX_STANDARD 17)
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake_find")
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
     set(LINUX TRUE)
@@ -34,28 +34,8 @@ if (WIN32)
     add_definitions(-DNOMINMAX -DNOGDI)
 endif()
 
-file(GLOB CPPUTILS_DIRS cpputils  submodules/cpputils ../cpputils ../../cpputils)
-find_path(CPPUTILS_PATH NAMES string-lineenum.h PATHS ${CPPUTILS_DIRS})
-if(NOT CPPUTILS_PATH)
-    include(FetchContent)
-    FetchContent_Populate(cpputils
-        GIT_REPOSITORY https://github.com/nlitsme/cpputils)
-    set(CPPUTILS_PATH ${CMAKE_BINARY_DIR}/cpputils-src)
-endif()
-add_library(cpputils INTERFACE)
-target_include_directories(cpputils INTERFACE ${CPPUTILS_PATH})
-
-file(GLOB HEXDUMPER_DIRS hexdumper  submodules/hexdumper ../hexdumper ../../hexdumper)
-find_path(HEXDUMPER_PATH NAMES string-lineenum.h PATHS ${HEXDUMPER_DIRS})
-if(NOT HEXDUMPER_PATH)
-    include(FetchContent)
-    FetchContent_Populate(hexdumper
-        GIT_REPOSITORY https://github.com/nlitsme/hexdumper)
-    set(HEXDUMPER_PATH ${CMAKE_BINARY_DIR}/hexdumper-src)
-endif()
-add_library(hexdumper INTERFACE)
-target_include_directories(hexdumper INTERFACE ${HEXDUMPER_PATH})
-
+find_package(cpputils REQUIRED)
+find_package(hexdumper REQUIRED)
 
 find_package(Boost REQUIRED COMPONENTS regex)
 
