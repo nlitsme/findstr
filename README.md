@@ -30,7 +30,7 @@ USAGE
        -c       count number of matches per file
        -f       follow, keep checking file for new data
        -M NUM   max file size
-       -S NAME  search algorithm: regex, std, stdbm, stdbmh, boostbm, boostbmh, boostkmp
+       -S NAME  search algorithm: regex, std, stdbm, stdbmh, boostbm, boostbmh, boostkmp, mask
        -Q       use posix::read, instead of posix::mmap
 
 
@@ -50,6 +50,27 @@ Searches for the ascii, utf-16, or utf-32 encoded string  `"test1234"`.
     findstr -x 12345678  *.bin
 
 Searches for the little endian DWORD:  0x12345678: the byte pattern: { 0x78, 0x56, 0x34, 0x12 }.
+
+
+search algorithm
+================
+
+You can specify an alternate search algorithm using the `-S` option.
+Available are:
+
+| type       | algorithm           |
+| :--------  | :----------------   |
+| regex      | `std::regex`                                |
+| std        | `std::default_searcher`                     |
+| stdbm      | `boyer_moore_searcher`                      |
+| stdbmh     | `boyer_moore_horspool_searcher`             |
+| boostbm    | `boost::algorithm::boyer_moore`             |
+| boostbmh   | `boost::algorithm::boyer_moore_horspool`    |
+| boostkmp   | `boost::algorithm::knuth_morris_pratt`      |
+| mask       | `custom`                                    |
+
+Depending on the search pattern and the file searched, a different algorithm may be the fastest. You will have to experiment to see
+what works best in your specific case.
 
 
 BUILDING

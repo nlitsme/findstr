@@ -48,14 +48,14 @@
 using namespace std::string_literals;
 
 
-#include "argparse.h"
-#include "formatter.h"
-#include "hexdumper.h"
-#include "stringlibrary.h"
-#include "datapacking.h"
-#include "fhandle.h"
-#include "mmem.h"
-#include "fslibrary.h"
+#include <cpputils/argparse.h>
+#include <cpputils/formatter.h>
+#include <cpputils/hexdumper.h>
+#include <cpputils/stringlibrary.h>
+#include <cpputils/datapacking.h>
+#include <cpputils/fhandle.h>
+#include <cpputils/mmem.h>
+#include <cpputils/fslibrary.h>
 
 #include <set>
 #include <fcntl.h>

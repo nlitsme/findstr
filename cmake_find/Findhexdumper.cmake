@@ -1,3 +1,6 @@
+if (TARGET hexdumper)
+    return()
+endif()
 find_path(HEXDUMPER_DIR NAMES dump_ossl_hash.h PATHS symlinks/hexdumper)
 if(HEXDUMPER_DIR STREQUAL "HEXDUMPER_DIR-NOTFOUND")
     include(FetchContent)
