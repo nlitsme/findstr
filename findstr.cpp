@@ -61,7 +61,8 @@ using namespace std::string_literals;
 #include <fcntl.h>
 
 #ifdef WITH_MEMSEARCH
-// from hexdumper
+// TODO: add support for linux /proc/<pid>/mem,  reading info from ../maps
+// machmemory is from hexdumper
 #include "machmemory.h"
 #endif
 
