@@ -1,7 +1,7 @@
 if (TARGET hexdumper)
     return()
 endif()
-find_path(HEXDUMPER_DIR NAMES dump_ossl_hash.h PATHS symlinks/hexdumper)
+find_path(HEXDUMPER_DIR NAMES dump_ossl_hash.h PATHS ${CMAKE_SOURCE_DIR}/symlinks/hexdumper)
 if(HEXDUMPER_DIR STREQUAL "HEXDUMPER_DIR-NOTFOUND")
     include(FetchContent)
     FetchContent_Populate(hexdumper
