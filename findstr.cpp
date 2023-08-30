@@ -34,7 +34,7 @@
 #endif
 
 // NOTE: in gcc this is not experimental, for clang it is.
-#ifdef __GLIBCXX__
+#if defined(__GLIBCXX__) || defined(_WIN32)
 // https://gcc.gnu.org/onlinedocs/libstdc++/manual/using_macros.html
 #include <functional>
 #define SEARCHERNS std
@@ -551,7 +551,11 @@ struct findstr {
             if (n == 0) {
                 if (readcontinuous) {
                     //printf("stdin: waiting for more\n");
+#ifdef _WIN32
+                    Sleep(10);
+#else
                     usleep(100);
+#endif
                     continue;
                 }
                 //print("read empty(need=%d), pos=%d\n", needed, lseek(f, 0, 1));
@@ -1098,7 +1102,7 @@ int main(int argc, char** argv)
             if (-1 == stat(arg.c_str(), &st))
                 continue;
 
-            if (S_ISDIR(st.st_mode)) {
+            if ((st.st_mode & S_IFMT) == S_IFDIR) {
                 if (recurse_dirs)
                     for (auto [fn, ent] : fileenumerator(arg))
                         catchall(f.searchfile(fn), fn);
