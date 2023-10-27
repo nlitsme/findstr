@@ -95,11 +95,14 @@ TODO
 ====
 
  * specify what context is printed for matches:
+   * only the offset
+   * encoding: the raw bytes, as ascdumped-text, as has.
    * the entire line.
    * a range of bytes.
    * the file block.
    * some way of defining a 'record'
 
+ * add support for linux `/proc/<pid>/mem`,  reading info from ../maps
 
 AUTHOR
 ======

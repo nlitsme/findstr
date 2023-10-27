@@ -670,9 +670,9 @@ struct findstr {
         else if (verbose) {
             if (matchbinary)
                 print("%s %08x %-b\n", origin, offset + first - bufstart, Hex::dumper((const uint8_t*)first, last - first));
-            else if (pattern_is_guid)                                                 
+            else if (pattern_is_guid)
                 print("%s %08x %s\n", origin, offset + first - bufstart, guidstring((const uint8_t*)first));
-            else                                                                 
+            else // TODO: add option to output the actual string, instead of the current 'ascdump'
                 print("%s %08x %+b\n", origin, offset + first - bufstart, Hex::dumper((const uint8_t*)first, last - first));
         }
         else {
